@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <array>
 #include <cstddef>
+#include <cmath>
 #include <atomic>
 #include <android/native_window_jni.h>
 #include <android/native_window.h>
@@ -39,30 +40,57 @@ static const uint16_t cubeIndices[36] = {
     0,4,7, 0,7,3, 1,2,6, 1,6,5
 };
 
-static void buildCameraMatrix(float aspect, float out[16]) {
+static void buildCameraMatrix(float aspect, float angle, float out[16]) {
     const float nearPlane = 0.1f;
     const float farPlane = 10.0f;
-    const float f = 1.0f; // câmera com campo de visão aproximado de 90 graus
+    const float f = 1.0f;
     float projection[16]{};
     projection[0] = f / aspect;
-    projection[5] = -f; // Vulkan: inverter Y para manter a orientação da imagem
+    projection[5] = -f;
     projection[10] = farPlane / (nearPlane - farPlane);
     projection[11] = -1.0f;
     projection[14] = (farPlane * nearPlane) / (nearPlane - farPlane);
 
     float view[16]{};
     view[0] = view[5] = view[10] = view[15] = 1.0f;
-    view[14] = -3.0f; // câmera posicionada em (0, 0, 3), olhando para a origem
+    view[14] = -3.0f;
 
+    float viewProjection[16]{};
     for (int col = 0; col < 4; ++col) {
         for (int row = 0; row < 4; ++row) {
-            out[col * 4 + row] = 0.0f;
             for (int k = 0; k < 4; ++k)
-                out[col * 4 + row] += projection[k * 4 + row] * view[col * 4 + k];
+                viewProjection[col * 4 + row] += projection[k * 4 + row] * view[col * 4 + k];
         }
     }
-}
 
+    // Rotação combinada nos eixos X, Y e Z.
+    const float cx = std::cos(angle * 0.73f), sx = std::sin(angle * 0.73f);
+    const float cy = std::cos(angle), sy = std::sin(angle);
+    const float cz = std::cos(angle * 0.41f), sz = std::sin(angle * 0.41f);
+    const float rotationX[16] = {
+        1,0,0,0,  0,cx,sx,0,  0,-sx,cx,0,  0,0,0,1
+    };
+    const float rotationY[16] = {
+        cy,0,-sy,0,  0,1,0,0,  sy,0,cy,0,  0,0,0,1
+    };
+    const float rotationZ[16] = {
+        cz,sz,0,0,  -sz,cz,0,0,  0,0,1,0,  0,0,0,1
+    };
+    float temp[16]{}, model[16]{};
+    for (int col = 0; col < 4; ++col)
+        for (int row = 0; row < 4; ++row)
+            for (int k = 0; k < 4; ++k)
+                temp[col * 4 + row] += rotationY[k * 4 + row] * rotationX[col * 4 + k];
+    for (int col = 0; col < 4; ++col)
+        for (int row = 0; row < 4; ++row)
+            for (int k = 0; k < 4; ++k)
+                model[col * 4 + row] += rotationZ[k * 4 + row] * temp[col * 4 + k];
+
+    for (int col = 0; col < 4; ++col)
+        for (int row = 0; row < 4; ++row)
+            for (int k = 0; k < 4; ++k)
+                out[col * 4 + row] += viewProjection[k * 4 + row] * model[col * 4 + k];
+}
 
 static bool hasInstanceExtension(const char* name) {
     uint32_t count = 0;
@@ -945,7 +973,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         float cameraMatrix[16]{};
-        buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), cameraMatrix);
+        const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f;\n        buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), rotationAngle, cameraMatrix);
         vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                            sizeof(cameraMatrix), cameraMatrix);
         VkDeviceSize vertexOffset = 0;

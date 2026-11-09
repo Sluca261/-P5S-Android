@@ -1,6 +1,7 @@
 package com.p5s.android;
 
 import android.app.Activity;
+import android.content.res.AssetManager;
 import android.os.Bundle;
 import android.graphics.Typeface;
 import android.view.Gravity;
@@ -17,7 +18,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private native String getVulkanInfo();
-    private native String renderVulkanFrame(Surface surface);
+    private native String renderVulkanFrame(Surface surface, AssetManager assets);
 
     private TextView surfaceResult;
 
@@ -37,7 +38,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 3 — teste de apresentação gráfica Vulkan");
+        subtitle.setText("Etapa 4 — primeiro triângulo pela pipeline Vulkan");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -71,7 +72,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(surfaceResult);
 
         TextView notice = new TextView(this);
-        notice.setText("Teste experimental de apresentação Vulkan. A cor exibida é apenas um quadro de diagnóstico; ainda não é o jogo Persona 5 Strikers.");
+        notice.setText("Teste experimental de pipeline gráfica Vulkan. O triângulo é uma geometria de diagnóstico; ainda não é o jogo Persona 5 Strikers.");
         notice.setTextSize(12);
         notice.setPadding(0, 16, 0, 0);
         content.addView(notice);
@@ -87,7 +88,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        surfaceResult.setText(renderVulkanFrame(holder.getSurface()));
+        surfaceResult.setText(renderVulkanFrame(holder.getSurface(), getAssets()));
     }
 
     @Override

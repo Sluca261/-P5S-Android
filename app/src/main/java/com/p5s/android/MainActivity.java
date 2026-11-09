@@ -45,7 +45,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 12 — rotação 3D em tempo real");
+        subtitle.setText("Etapa 13 — iluminação 3D dinâmica");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -79,7 +79,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(surfaceResult);
 
         TextView notice = new TextView(this);
-        notice.setText("Teste experimental de renderização Vulkan. O cubo é uma geometria de diagnóstico com rotação contínua; ainda não é o jogo Persona 5 Strikers.");
+        notice.setText("Teste experimental de renderização Vulkan. O cubo é uma geometria de diagnóstico com rotação e iluminação direcional; ainda não é o jogo Persona 5 Strikers.");
         notice.setTextSize(12);
         notice.setPadding(0, 16, 0, 0);
         content.addView(notice);
@@ -103,7 +103,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         activeSurface = surface;
-        surfaceResult.setText("Renderização Vulkan contínua em execução...\nA GPU está apresentando o triângulo em uma thread dedicada.");
+        surfaceResult.setText("Renderização Vulkan contínua em execução...\nA GPU está apresentando a malha 3D em uma thread dedicada.");
         prepareVulkanRendering();
         Thread worker = new Thread(() -> {
             Thread current = Thread.currentThread();

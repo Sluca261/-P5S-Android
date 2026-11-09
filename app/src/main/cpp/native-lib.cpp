@@ -69,7 +69,14 @@ static const uint16_t cubeIndices[36] = {
     16,17,18, 16,18,19, 20,21,22, 20,22,23
 };
 
-static void buildCameraMatrix(float aspect, float angle, float yawInput, float pitchInput, float moveX, float moveY, float out[32]) {
+static void buildCameraMatrix(float aspect, float angle, float yawInput, float pitchInput, float moveX, float moveY, uint64_t buttons, float out[32]) {
+    // Índices alinhados ao bitmask de GameInputState: L=4, R=5, direcional=10..13.
+    if (buttons & (1ULL << 12)) moveX -= 0.45f;
+    if (buttons & (1ULL << 13)) moveX += 0.45f;
+    if (buttons & (1ULL << 10)) moveY -= 0.45f;
+    if (buttons & (1ULL << 11)) moveY += 0.45f;
+    if (buttons & (1ULL << 4)) yawInput -= 0.35f;
+    if (buttons & (1ULL << 5)) yawInput += 0.35f;
     const float nearPlane = 0.1f;
     const float farPlane = 10.0f;
     const float f = 1.0f;
@@ -590,6 +597,20 @@ Java_com_p5s_android_MainActivity_prepareVulkanRendering(JNIEnv*, jobject) {
 extern "C" JNIEXPORT void JNICALL
 Java_com_p5s_android_MainActivity_requestStopVulkanRendering(JNIEnv*, jobject) {
     g_stopRendering.store(true);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_p5s_android_MainActivity_updateInputState(JNIEnv*, jobject, jlong buttons,
+        jfloat leftX, jfloat leftY, jfloat rightX, jfloat rightY) {
+    auto safeAxis = [](float value) {
+        if (!std::isfinite(value)) return 0.0f;
+        return std::max(-1.0f, std::min(1.0f, value));
+    };
+    g_buttonMask.store(static_cast<uint64_t>(buttons));
+    g_leftX.store(safeAxis(leftX));
+    g_leftY.store(safeAxis(leftY));
+    g_rightX.store(safeAxis(rightX));
+    g_rightY.store(safeAxis(rightY));
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -1234,9 +1255,12 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         float cameraMatrix[32]{};
-        const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f;
+        const uint64_t buttons = g_buttonMask.load();
+        const float spinDirection = (buttons & (1ULL << 0)) ? 1.0f
+                : ((buttons & (1ULL << 1)) ? -1.0f : 0.35f);
+        const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f * spinDirection;
         buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height),
-            rotationAngle, g_rightX.load(), g_rightY.load(), g_leftX.load(), g_leftY.load(), cameraMatrix);
+            rotationAngle, g_rightX.load(), g_rightY.load(), g_leftX.load(), g_leftY.load(), buttons, cameraMatrix);
         vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                            sizeof(cameraMatrix), cameraMatrix);
         VkDeviceSize vertexOffset = 0;

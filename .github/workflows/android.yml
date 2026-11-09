@@ -42,6 +42,14 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Compile Vulkan shaders to SPIR-V
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools
+          mkdir -p app/build/generated/shaders
+          glslangValidator -V app/src/main/shaders/triangle.vert -o app/build/generated/shaders/triangle.vert.spv
+          glslangValidator -V app/src/main/shaders/triangle.frag -o app/build/generated/shaders/triangle.frag.spv
+
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 

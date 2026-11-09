@@ -22,6 +22,12 @@ Os botões virtuais e os eventos de controles físicos agora alimentam a mesma c
 
 **Limitação atual:** esta camada unifica e apresenta os dados de entrada para diagnóstico, mas ainda não envia comandos a um motor de jogo. A integração com um runtime depende da implementação futura desse runtime e do seu contrato de entrada.
 
+## Ponte JNI e resposta visual aos analógicos (etapa 22)
+
+A classe Java encaminha por JNI o bitmask de botões e os quatro eixos normalizados para o lado nativo. O renderizador Vulkan lê os eixos de forma thread-safe: o analógico direito altera a orientação do modelo de diagnóstico e o esquerdo desloca sua posição na área de teste. A rotação automática foi desacelerada para deixar a resposta aos comandos mais perceptível.
+
+Os botões já atravessam a ponte e ficam disponíveis no estado nativo para a futura camada de runtime, mas ainda não executam ações de jogo. A resposta visual atual é somente um teste da integração de entrada com a renderização, não controle de Persona 5 Strikers.
+
 ## Próximos marcos
 
 1. Validar a camada unificada com controles físicos diferentes e múltiplos toques.

@@ -1264,8 +1264,12 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         const uint64_t buttons = g_buttonMask.load();
         const uint64_t pressedEvents = g_pressedMask.exchange(0);
         g_releasedMask.exchange(0);
-        if (pressedEvents & (1ULL << 2)) g_commandYawOffset.fetch_add(0.18f);
-        if (pressedEvents & (1ULL << 3)) g_commandYawOffset.fetch_add(-0.18f);
+        auto addYawOffset = [](float delta) {
+            float current = g_commandYawOffset.load();
+            while (!g_commandYawOffset.compare_exchange_weak(current, current + delta)) {}
+        };
+        if (pressedEvents & (1ULL << 2)) addYawOffset(0.18f);
+        if (pressedEvents & (1ULL << 3)) addYawOffset(-0.18f);
         const float spinDirection = (buttons & (1ULL << 0)) ? 1.0f
                 : ((buttons & (1ULL << 1)) ? -1.0f : 0.35f);
         const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f * spinDirection;

@@ -114,11 +114,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(launcherInfo);
         content.addView(selectGame);
         content.addView(selectedGameStatus);
-        content.addView(preparationStatus);
-        content.addView(result);
-        content.addView(surfaceTitle);
-        content.addView(surfaceView, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(220)));
 
         TextView controlsTitle = new TextView(this);
         controlsTitle.setText("Controles de teste");
@@ -176,6 +171,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         analogRow.addView(new InputPadView("CÂMERA"),
                 new LinearLayout.LayoutParams(0, dpToPx(150), 1));
         content.addView(analogRow);
+        content.addView(preparationStatus);
+        content.addView(result);
+        content.addView(surfaceTitle);
+        content.addView(surfaceView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(220)));
+
+
 
         surfaceResult = new TextView(this);
         surfaceResult.setText("Aguardando criação da superfície Android...");

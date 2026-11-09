@@ -535,7 +535,8 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     output += "\nImagens na swapchain: " + std::to_string(imageCount);
     output += "\nPipeline gráfica: ativa";
     output += "\nGeometria: 3 vértices via gl_VertexIndex";
-    output += "\nShader de fragmento: rosa";
+    output += "\nTextura de teste: padrão quadriculado procedural via UV";
+    output += "\nGeometria: triângulo com coordenadas 3D e UV";
     output += "\nFrames apresentados: " + std::to_string(renderedFrames);
     output += interrupted ? "\nMotivo: superfície redimensionada ou recriada." : "\nMotivo: ciclo interrompido pelo Android.";
     cleanup();

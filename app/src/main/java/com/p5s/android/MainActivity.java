@@ -297,7 +297,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP) {
+        int source = event.getSource();
+        boolean gamepad = (source & android.view.InputDevice.SOURCE_GAMEPAD)
+                == android.view.InputDevice.SOURCE_GAMEPAD
+                || (source & android.view.InputDevice.SOURCE_JOYSTICK)
+                == android.view.InputDevice.SOURCE_JOYSTICK;
+        if (gamepad && (event.getAction() == KeyEvent.ACTION_DOWN
+                || event.getAction() == KeyEvent.ACTION_UP)) {
             reportInput("controle físico — " + KeyEvent.keyCodeToString(event.getKeyCode())
                     + (event.getAction() == KeyEvent.ACTION_DOWN ? " pressionado" : " liberado"));
             return true;

@@ -1,6 +1,8 @@
-# Materiais originais de diagnóstico.
+# Materiais de diagnóstico com mapas difusos independentes.
 newmtl ruby
 Kd 0.95 0.22 0.28
+map_Kd ruby_texture.ppm
 
 newmtl azure
 Kd 0.22 0.48 1.0
+map_Kd azure_texture.ppm

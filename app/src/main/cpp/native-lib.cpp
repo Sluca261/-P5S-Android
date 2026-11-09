@@ -17,7 +17,7 @@
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 
-static std::atomic<bool> g_stopRendering{false};
+static std::atomic<bool> g_stopRendering{false};\nstatic std::atomic<uint64_t> g_buttonMask{0};
 static std::atomic<float> g_leftX{0.0f}, g_leftY{0.0f};
 static std::atomic<float> g_rightX{0.0f}, g_rightY{0.0f};
 

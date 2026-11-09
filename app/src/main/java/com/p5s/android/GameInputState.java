@@ -13,6 +13,9 @@ public final class GameInputState {
     };
 
     private long buttonMask;
+    private long pressedMask;
+    private long releasedMask;
+    private long sequence;
     private float leftX;
     private float leftY;
     private float rightX;
@@ -23,7 +26,16 @@ public final class GameInputState {
         for (int i = 0; i < BUTTONS.length; i++) {
             if (BUTTONS[i].equals(name)) {
                 long bit = 1L << i;
-                buttonMask = pressed ? buttonMask | bit : buttonMask & ~bit;
+                boolean wasPressed = (buttonMask & bit) != 0;
+                if (pressed && !wasPressed) {
+                    buttonMask |= bit;
+                    pressedMask |= bit;
+                    sequence++;
+                } else if (!pressed && wasPressed) {
+                    buttonMask &= ~bit;
+                    releasedMask |= bit;
+                    sequence++;
+                }
                 return;
             }
         }
@@ -37,9 +49,11 @@ public final class GameInputState {
         return false;
     }
 
-    public synchronized long getButtonMask() {
-        return buttonMask;
-    }
+    public synchronized long getButtonMask() { return buttonMask; }
+    public synchronized long getPressedMask() { return pressedMask; }
+    public synchronized long getReleasedMask() { return releasedMask; }
+    public synchronized long getSequence() { return sequence; }
+    public synchronized void clearEdgeEvents() { pressedMask = 0L; releasedMask = 0L; }
 
     public synchronized void setAxes(float lx, float ly, float rx, float ry) {
         float[] left = normalizeStick(lx, ly);

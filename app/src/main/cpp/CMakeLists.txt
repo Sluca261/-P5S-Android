@@ -5,5 +5,6 @@ add_library(native-lib SHARED native-lib.cpp)
 
 find_library(log-lib log)
 find_library(vulkan-lib vulkan)
+find_library(android-lib android)
 
-target_link_libraries(native-lib ${log-lib} ${vulkan-lib})
+target_link_libraries(native-lib ${log-lib} ${vulkan-lib} ${android-lib})

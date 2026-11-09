@@ -45,7 +45,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 5 — renderização contínua em thread própria");
+        subtitle.setText("Etapa 6 — coordenadas UV e textura procedural");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);

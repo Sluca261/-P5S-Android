@@ -316,7 +316,7 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
                     vertex.position[1] = p[1];
                     vertex.position[2] = p[2];
                     const float sourceU = corner.uv >= 0 ? texcoords[corner.uv][0] : 0.0f;
-                    vertex.uv[0] = sourceU * 0.5f + static_cast<float>(currentAtlasSlot) * 0.5f;
+                    vertex.uv[0] = sourceU * 0.46f + static_cast<float>(currentAtlasSlot) * 0.5f + 0.02f;
                     vertex.uv[1] = corner.uv >= 0 ? texcoords[corner.uv][1] : 0.0f;
                     vertex.tint[0] = currentTint[0];
                     vertex.tint[1] = currentTint[1];

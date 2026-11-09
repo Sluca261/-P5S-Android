@@ -17,7 +17,8 @@
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 
-static std::atomic<bool> g_stopRendering{false};\nstatic std::atomic<uint64_t> g_buttonMask{0};
+static std::atomic<bool> g_stopRendering{false};
+static std::atomic<uint64_t> g_buttonMask{0};
 static std::atomic<float> g_leftX{0.0f}, g_leftY{0.0f};
 static std::atomic<float> g_rightX{0.0f}, g_rightY{0.0f};
 
@@ -1234,7 +1235,8 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         float cameraMatrix[32]{};
         const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f;
-        buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), rotationAngle, cameraMatrix);
+        buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height),
+            rotationAngle, g_rightX.load(), g_rightY.load(), g_leftX.load(), g_leftY.load(), cameraMatrix);
         vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                            sizeof(cameraMatrix), cameraMatrix);
         VkDeviceSize vertexOffset = 0;

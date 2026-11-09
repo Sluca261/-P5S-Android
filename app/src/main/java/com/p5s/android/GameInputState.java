@@ -9,7 +9,7 @@ import java.util.Locale;
 public final class GameInputState {
     private static final String[] BUTTONS = {
             "A", "B", "X", "Y", "L", "R", "ZL", "ZR",
-            "START", "SELECT", "UP", "DOWN", "LEFT", "RIGHT"
+            "START", "SELECT", "UP", "DOWN", "LEFT", "RIGHT", "L3", "R3"
     };
 
     private long buttonMask;

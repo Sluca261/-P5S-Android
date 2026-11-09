@@ -2,6 +2,9 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <sstream>
+#include <cstring>
+#include <cstdint>
 #include <atomic>
 #include <android/native_window_jni.h>
 #include <android/native_window.h>
@@ -43,6 +46,201 @@ static bool loadShader(AAssetManager* manager, const char* name, std::vector<uin
     const int bytes = AAsset_read(asset, code.data(), static_cast<size_t>(length));
     AAsset_close(asset);
     return bytes == length && !code.empty() && code[0] == 0x07230203;
+}
+
+
+static uint32_t findMemoryType(VkPhysicalDevice physical, uint32_t bits, VkMemoryPropertyFlags flags) {
+    VkPhysicalDeviceMemoryProperties props{};
+    vkGetPhysicalDeviceMemoryProperties(physical, &props);
+    for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
+        if ((bits & (1u << i)) && (props.memoryTypes[i].propertyFlags & flags) == flags) return i;
+    return UINT32_MAX;
+}
+
+static bool createTestTexture(AAssetManager* assets, VkPhysicalDevice physical, VkDevice device,
+    VkQueue queue, VkCommandPool pool, VkImage* image, VkDeviceMemory* imageMemory,
+    VkImageView* view, VkSampler* sampler) {
+    AAsset* asset = AAssetManager_open(assets, "texture.ppm", AASSET_MODE_BUFFER);
+    if (!asset) return false;
+    const off_t length = AAsset_getLength(asset);
+    std::string source(static_cast<size_t>(length), '\0');
+    const int bytesRead = AAsset_read(asset, source.data(), static_cast<size_t>(length));
+    AAsset_close(asset);
+    if (bytesRead != length) return false;
+
+    std::istringstream input(source);
+    std::string magic;
+    uint32_t width = 0, height = 0, maximum = 0;
+    input >> magic >> width >> height >> maximum;
+    if (magic != "P3" || width == 0 || height == 0 || maximum != 255 || width > 512 || height > 512)
+        return false;
+
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+    for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
+        int r = 0, g = 0, b = 0;
+        if (!(input >> r >> g >> b)) return false;
+        pixels[i * 4] = static_cast<uint8_t>(std::max(0, std::min(255, r)));
+        pixels[i * 4 + 1] = static_cast<uint8_t>(std::max(0, std::min(255, g)));
+        pixels[i * 4 + 2] = static_cast<uint8_t>(std::max(0, std::min(255, b)));
+        pixels[i * 4 + 3] = 255;
+    }
+
+    VkBuffer staging = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = pixels.size();
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateBuffer(device, &bufferInfo, nullptr, &staging) != VK_SUCCESS) return false;
+
+    VkMemoryRequirements bufferReq{};
+    vkGetBufferMemoryRequirements(device, staging, &bufferReq);
+    const uint32_t hostType = findMemoryType(physical, bufferReq.memoryTypeBits,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (hostType == UINT32_MAX) {
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+    VkMemoryAllocateInfo allocation{};
+    allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocation.allocationSize = bufferReq.size;
+    allocation.memoryTypeIndex = hostType;
+    if (vkAllocateMemory(device, &allocation, nullptr, &stagingMemory) != VK_SUCCESS) {
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+    if (vkBindBufferMemory(device, staging, stagingMemory, 0) != VK_SUCCESS) {
+        vkFreeMemory(device, stagingMemory, nullptr);
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+    void* mapped = nullptr;
+    if (vkMapMemory(device, stagingMemory, 0, pixels.size(), 0, &mapped) != VK_SUCCESS) {
+        vkFreeMemory(device, stagingMemory, nullptr);
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+    std::memcpy(mapped, pixels.data(), pixels.size());
+    vkUnmapMemory(device, stagingMemory);
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imageInfo.extent = {width, height, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(device, &imageInfo, nullptr, image) != VK_SUCCESS) {
+        vkFreeMemory(device, stagingMemory, nullptr);
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+
+    VkMemoryRequirements imageReq{};
+    vkGetImageMemoryRequirements(device, *image, &imageReq);
+    const uint32_t deviceType = findMemoryType(physical, imageReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (deviceType == UINT32_MAX) {
+        vkDestroyImage(device, *image, nullptr);
+        *image = VK_NULL_HANDLE;
+        vkFreeMemory(device, stagingMemory, nullptr);
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+    allocation.allocationSize = imageReq.size;
+    allocation.memoryTypeIndex = deviceType;
+    if (vkAllocateMemory(device, &allocation, nullptr, imageMemory) != VK_SUCCESS ||
+        vkBindImageMemory(device, *image, *imageMemory, 0) != VK_SUCCESS) {
+        if (*imageMemory) vkFreeMemory(device, *imageMemory, nullptr);
+        *imageMemory = VK_NULL_HANDLE;
+        vkDestroyImage(device, *image, nullptr);
+        *image = VK_NULL_HANDLE;
+        vkFreeMemory(device, stagingMemory, nullptr);
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+
+    VkCommandBufferAllocateInfo commandAllocation{};
+    commandAllocation.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    commandAllocation.commandPool = pool;
+    commandAllocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandAllocation.commandBufferCount = 1;
+    VkCommandBuffer command = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(device, &commandAllocation, &command) != VK_SUCCESS) {
+        vkFreeMemory(device, stagingMemory, nullptr);
+        vkDestroyBuffer(device, staging, nullptr);
+        return false;
+    }
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult result = vkBeginCommandBuffer(command, &begin);
+    if (result == VK_SUCCESS) {
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = *image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        VkBufferImageCopy copy{};
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.layerCount = 1;
+        copy.imageExtent = {width, height, 1};
+        vkCmdCopyBufferToImage(command, staging, *image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(command, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+        result = vkEndCommandBuffer(command);
+    }
+    if (result == VK_SUCCESS) {
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &command;
+        result = vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
+        if (result == VK_SUCCESS) result = vkQueueWaitIdle(queue);
+    }
+    vkFreeCommandBuffers(device, pool, 1, &command);
+    vkFreeMemory(device, stagingMemory, nullptr);
+    vkDestroyBuffer(device, staging, nullptr);
+    if (result != VK_SUCCESS) return false;
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = *image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(device, &viewInfo, nullptr, view) != VK_SUCCESS) return false;
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.maxLod = 0.0f;
+    return vkCreateSampler(device, &samplerInfo, nullptr, sampler) == VK_SUCCESS;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -126,6 +324,13 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     VkFence frameFence = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    VkImage textureImage = VK_NULL_HANDLE;
+    VkDeviceMemory textureMemory = VK_NULL_HANDLE;
+    VkImageView textureView = VK_NULL_HANDLE;
+    VkSampler textureSampler = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkShaderModule vertexModule = VK_NULL_HANDLE, fragmentModule = VK_NULL_HANDLE;
     ANativeWindow* window = ANativeWindow_fromSurface(env, javaSurface);
@@ -138,6 +343,12 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
             for (VkFramebuffer fb : framebuffers) if (fb) vkDestroyFramebuffer(device, fb, nullptr);
             if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
             if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+            if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+            if (textureSampler) vkDestroySampler(device, textureSampler, nullptr);
+            if (textureView) vkDestroyImageView(device, textureView, nullptr);
+            if (textureImage) vkDestroyImage(device, textureImage, nullptr);
+            if (textureMemory) vkFreeMemory(device, textureMemory, nullptr);
+            if (descriptorLayout) vkDestroyDescriptorSetLayout(device, descriptorLayout, nullptr);
             if (vertexModule) vkDestroyShaderModule(device, vertexModule, nullptr);
             if (fragmentModule) vkDestroyShaderModule(device, fragmentModule, nullptr);
             if (renderPass) vkDestroyRenderPass(device, renderPass, nullptr);
@@ -397,8 +608,21 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     blend.attachmentCount = 1;
     blend.pAttachments = &blendAttachment;
+    VkDescriptorSetLayoutBinding textureBinding{};
+    textureBinding.binding = 0;
+    textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    textureBinding.descriptorCount = 1;
+    textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo descriptorLayoutInfo{};
+    descriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptorLayoutInfo.bindingCount = 1;
+    descriptorLayoutInfo.pBindings = &textureBinding;
+    result = vkCreateDescriptorSetLayout(device, &descriptorLayoutInfo, nullptr, &descriptorLayout);
+    if (result != VK_SUCCESS) return fail("ERRO ao criar layout de textura: " + std::to_string(result));
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts = &descriptorLayout;
     result = vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout);
     if (result != VK_SUCCESS) return fail("ERRO ao criar pipeline layout: " + std::to_string(result));
 
@@ -424,6 +648,37 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     poolInfo.queueFamilyIndex = queueIndex;
     result = vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool);
     if (result != VK_SUCCESS) return fail("ERRO ao criar command pool: " + std::to_string(result));
+    if (!createTestTexture(assets, physical, device, queue, commandPool,
+        &textureImage, &textureMemory, &textureView, &textureSampler))
+        return fail("ERRO: não foi possível carregar texture.ppm na GPU.");
+    VkDescriptorPoolSize descriptorSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    VkDescriptorPoolCreateInfo descriptorPoolInfo{};
+    descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorPoolInfo.maxSets = 1;
+    descriptorPoolInfo.poolSizeCount = 1;
+    descriptorPoolInfo.pPoolSizes = &descriptorSize;
+    result = vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool);
+    if (result != VK_SUCCESS) return fail("ERRO ao criar descriptor pool: " + std::to_string(result));
+    VkDescriptorSetAllocateInfo descriptorAlloc{};
+    descriptorAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorAlloc.descriptorPool = descriptorPool;
+    descriptorAlloc.descriptorSetCount = 1;
+    descriptorAlloc.pSetLayouts = &descriptorLayout;
+    result = vkAllocateDescriptorSets(device, &descriptorAlloc, &descriptorSet);
+    if (result != VK_SUCCESS) return fail("ERRO ao alocar descriptor set: " + std::to_string(result));
+    VkDescriptorImageInfo descriptorImage{};
+    descriptorImage.sampler = textureSampler;
+    descriptorImage.imageView = textureView;
+    descriptorImage.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = descriptorSet;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrite.pImageInfo = &descriptorImage;
+    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     result = vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailable);
@@ -485,6 +740,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         passBegin.pClearValues = &clear;
         vkCmdBeginRenderPass(command, &passBegin, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         vkCmdDraw(command, 3, 1, 0, 0);
         vkCmdEndRenderPass(command);
         result = vkEndCommandBuffer(command);
@@ -535,8 +791,8 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     output += "\nImagens na swapchain: " + std::to_string(imageCount);
     output += "\nPipeline gráfica: ativa";
     output += "\nGeometria: 3 vértices via gl_VertexIndex";
-    output += "\nTextura de teste: padrão quadriculado procedural via UV";
-    output += "\nGeometria: triângulo com coordenadas 3D e UV";
+    output += "\nTextura: imagem PPM 16x16 carregada na GPU";
+    output += "\nAmostragem: VkImage + VkSampler + Descriptor Set";
     output += "\nFrames apresentados: " + std::to_string(renderedFrames);
     output += interrupted ? "\nMotivo: superfície redimensionada ou recriada." : "\nMotivo: ciclo interrompido pelo Android.";
     cleanup();

@@ -24,6 +24,7 @@ struct MeshVertex {
     float uv[2];
     float tint[3];
     float normal[3];
+    float materialIndex;
 };
 
 // 24 vértices: quatro independentes por face para preservar normais planas e UVs.
@@ -203,10 +204,10 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
     std::vector<std::array<float, 3>> positions;
     std::vector<std::array<float, 2>> texcoords;
     std::vector<std::array<float, 3>> normals;
-    struct MaterialData { std::array<float, 3> diffuse{1.0f, 1.0f, 1.0f}; int atlasSlot = 0; };
+    struct MaterialData { std::array<float, 3> diffuse{1.0f, 1.0f, 1.0f}; int textureIndex = 0; };
     std::unordered_map<std::string, MaterialData> materials;
     std::array<float, 3> currentTint = {1.0f, 1.0f, 1.0f};
-    int currentAtlasSlot = 0;
+    int currentTextureIndex = 0;
     mesh.vertices.clear();
     mesh.indices.clear();
 
@@ -241,9 +242,8 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
                     std::string textureFile;
                     if (!(materialRow >> textureFile) || textureFile.find('/') != std::string::npos ||
                         textureFile.find("..") != std::string::npos) return false;
-                    // O atlas de diagnóstico reserva uma metade para cada textura independente.
-                    if (textureFile == "ruby_texture.ppm") materials[activeMaterial].atlasSlot = 0;
-                    else if (textureFile == "azure_texture.ppm") materials[activeMaterial].atlasSlot = 1;
+                    if (textureFile == "ruby_texture.ppm") materials[activeMaterial].textureIndex = 0;
+                    else if (textureFile == "azure_texture.ppm") materials[activeMaterial].textureIndex = 1;
                     else return false;
                 }
             }
@@ -253,7 +253,7 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
             const auto found = materials.find(materialName);
             if (found == materials.end()) return false;
             currentTint = found->second.diffuse;
-            currentAtlasSlot = found->second.atlasSlot;
+            currentTextureIndex = found->second.textureIndex;
         } else if (kind == "v") {
             std::array<float, 3> value{};
             if (!(row >> value[0] >> value[1] >> value[2])) return false;
@@ -315,12 +315,12 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
                     vertex.position[0] = p[0];
                     vertex.position[1] = p[1];
                     vertex.position[2] = p[2];
-                    const float sourceU = corner.uv >= 0 ? texcoords[corner.uv][0] : 0.0f;
-                    vertex.uv[0] = sourceU * 0.46f + static_cast<float>(currentAtlasSlot) * 0.5f + 0.02f;
+                    vertex.uv[0] = corner.uv >= 0 ? texcoords[corner.uv][0] : 0.0f;
                     vertex.uv[1] = corner.uv >= 0 ? texcoords[corner.uv][1] : 0.0f;
                     vertex.tint[0] = currentTint[0];
                     vertex.tint[1] = currentTint[1];
                     vertex.tint[2] = currentTint[2];
+                    vertex.materialIndex = static_cast<float>(currentTextureIndex);
                     if (corner.normal >= 0) {
                         const auto& n = normals[corner.normal];
                         vertex.normal[0] = n[0]; vertex.normal[1] = n[1]; vertex.normal[2] = n[2];
@@ -398,10 +398,10 @@ static uint32_t findMemoryType(VkPhysicalDevice physical, uint32_t bits, VkMemor
 }
 
 static bool createTestTexture(AAssetManager* assets, VkPhysicalDevice physical, VkDevice device,
-    VkQueue queue, VkCommandPool pool, VkImage* image, VkDeviceMemory* imageMemory,
+    VkQueue queue, VkCommandPool pool, const char* assetName, VkImage* image, VkDeviceMemory* imageMemory,
     VkImageView* view, VkSampler* sampler) {
     std::vector<uint8_t> textureBytes;
-    if (!readAssetBytes(assets, "texture.ppm", textureBytes, 4u * 1024u * 1024u)) return false;
+    if (!readAssetBytes(assets, assetName, textureBytes, 4u * 1024u * 1024u)) return false;
     const std::string source(textureBytes.begin(), textureBytes.end());
 
     std::istringstream input(source);
@@ -669,10 +669,10 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-    VkImage textureImage = VK_NULL_HANDLE;
-    VkDeviceMemory textureMemory = VK_NULL_HANDLE;
-    VkImageView textureView = VK_NULL_HANDLE;
-    VkSampler textureSampler = VK_NULL_HANDLE;
+    VkImage textureImages[2]{};
+    VkDeviceMemory textureMemories[2]{};
+    VkImageView textureViews[2]{};
+    VkSampler textureSamplers[2]{};
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkShaderModule vertexModule = VK_NULL_HANDLE, fragmentModule = VK_NULL_HANDLE;
     ANativeWindow* window = ANativeWindow_fromSurface(env, javaSurface);
@@ -693,10 +693,12 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
             if (depthImage) vkDestroyImage(device, depthImage, nullptr);
             if (depthMemory) vkFreeMemory(device, depthMemory, nullptr);
             if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-            if (textureSampler) vkDestroySampler(device, textureSampler, nullptr);
-            if (textureView) vkDestroyImageView(device, textureView, nullptr);
-            if (textureImage) vkDestroyImage(device, textureImage, nullptr);
-            if (textureMemory) vkFreeMemory(device, textureMemory, nullptr);
+            for (int i = 0; i < 2; ++i) {
+                if (textureSamplers[i]) vkDestroySampler(device, textureSamplers[i], nullptr);
+                if (textureViews[i]) vkDestroyImageView(device, textureViews[i], nullptr);
+                if (textureImages[i]) vkDestroyImage(device, textureImages[i], nullptr);
+                if (textureMemories[i]) vkFreeMemory(device, textureMemories[i], nullptr);
+            }
             if (descriptorLayout) vkDestroyDescriptorSetLayout(device, descriptorLayout, nullptr);
             if (vertexModule) vkDestroyShaderModule(device, vertexModule, nullptr);
             if (fragmentModule) vkDestroyShaderModule(device, fragmentModule, nullptr);
@@ -993,16 +995,17 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     meshBinding.binding = 0;
     meshBinding.stride = sizeof(MeshVertex);
     meshBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    VkVertexInputAttributeDescription meshAttributes[4]{};
+    VkVertexInputAttributeDescription meshAttributes[5]{};
     meshAttributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, position)};
     meshAttributes[1] = {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshVertex, uv)};
     meshAttributes[2] = {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, tint)};
     meshAttributes[3] = {3, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, normal)};
+    meshAttributes[4] = {4, 0, VK_FORMAT_R32_SFLOAT, offsetof(MeshVertex, materialIndex)};
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInput.vertexBindingDescriptionCount = 1;
     vertexInput.pVertexBindingDescriptions = &meshBinding;
-    vertexInput.vertexAttributeDescriptionCount = 4;
+    vertexInput.vertexAttributeDescriptionCount = 5;
     vertexInput.pVertexAttributeDescriptions = meshAttributes;
     VkPipelineInputAssemblyStateCreateInfo assembly{};
     assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1046,7 +1049,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     VkDescriptorSetLayoutBinding textureBinding{};
     textureBinding.binding = 0;
     textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    textureBinding.descriptorCount = 1;
+    textureBinding.descriptorCount = 2;
     textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo descriptorLayoutInfo{};
     descriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -1128,10 +1131,13 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
             VK_BUFFER_USAGE_INDEX_BUFFER_BIT, &indexBuffer, &indexMemory))
         return fail("ERRO ao criar buffer de índices da malha OBJ.");
 
-    if (!createTestTexture(assets, physical, device, queue, commandPool,
-        &textureImage, &textureMemory, &textureView, &textureSampler))
-        return fail("ERRO: não foi possível carregar texture.ppm na GPU.");
-    VkDescriptorPoolSize descriptorSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    for (int i = 0; i < 2; ++i) {
+        const char* names[2] = {"ruby_texture.ppm", "azure_texture.ppm"};
+        if (!createTestTexture(assets, physical, device, queue, commandPool, names[i],
+            &textureImages[i], &textureMemories[i], &textureViews[i], &textureSamplers[i]))
+            return fail(std::string("ERRO ao carregar textura independente: ") + names[i]);
+    }
+    VkDescriptorPoolSize descriptorSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
     VkDescriptorPoolCreateInfo descriptorPoolInfo{};
     descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptorPoolInfo.maxSets = 1;
@@ -1146,17 +1152,19 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     descriptorAlloc.pSetLayouts = &descriptorLayout;
     result = vkAllocateDescriptorSets(device, &descriptorAlloc, &descriptorSet);
     if (result != VK_SUCCESS) return fail("ERRO ao alocar descriptor set: " + std::to_string(result));
-    VkDescriptorImageInfo descriptorImage{};
-    descriptorImage.sampler = textureSampler;
-    descriptorImage.imageView = textureView;
-    descriptorImage.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo descriptorImages[2]{};
     VkWriteDescriptorSet descriptorWrite{};
+    for (int i = 0; i < 2; ++i) {
+        descriptorImages[i].sampler = textureSamplers[i];
+        descriptorImages[i].imageView = textureViews[i];
+        descriptorImages[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
     descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrite.dstSet = descriptorSet;
     descriptorWrite.dstBinding = 0;
-    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.descriptorCount = 2;
     descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    descriptorWrite.pImageInfo = &descriptorImage;
+    descriptorWrite.pImageInfo = descriptorImages;
     vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 
     VkSemaphoreCreateInfo semaphoreInfo{};

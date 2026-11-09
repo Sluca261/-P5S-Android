@@ -137,19 +137,47 @@ static bool hasDeviceExtension(VkPhysicalDevice device, const char* name) {
     return false;
 }
 
-static bool loadShader(AAssetManager* manager, const char* name, std::vector<uint32_t>& code) {
-    if (!manager) return false;
-    AAsset* asset = AAssetManager_open(manager, name, AASSET_MODE_BUFFER);
+// Leitura comum e limitada de arquivos empacotados no APK.
+// O loop evita depender de uma única chamada de leitura completa do AAsset.
+static bool readAssetBytes(AAssetManager* manager, const char* name,
+                           std::vector<uint8_t>& output, size_t maxBytes) {
+    output.clear();
+    if (!manager || !name || maxBytes == 0) return false;
+
+    AAsset* asset = AAssetManager_open(manager, name, AASSET_MODE_STREAMING);
     if (!asset) return false;
+
     const off_t length = AAsset_getLength(asset);
-    if (length <= 0 || (length % 4) != 0) {
+    if (length <= 0 || static_cast<uint64_t>(length) > maxBytes) {
         AAsset_close(asset);
         return false;
     }
-    code.resize(static_cast<size_t>(length) / sizeof(uint32_t));
-    const int bytes = AAsset_read(asset, code.data(), static_cast<size_t>(length));
+
+    output.resize(static_cast<size_t>(length));
+    size_t offset = 0;
+    while (offset < output.size()) {
+        const size_t remaining = output.size() - offset;
+        const int chunk = AAsset_read(asset, output.data() + offset, remaining);
+        if (chunk <= 0) {
+            output.clear();
+            AAsset_close(asset);
+            return false;
+        }
+        offset += static_cast<size_t>(chunk);
+    }
+
     AAsset_close(asset);
-    return bytes == length && !code.empty() && code[0] == 0x07230203;
+    return true;
+}
+
+static bool loadShader(AAssetManager* manager, const char* name, std::vector<uint32_t>& code) {
+    std::vector<uint8_t> bytes;
+    if (!readAssetBytes(manager, name, bytes, 16u * 1024u * 1024u) ||
+        (bytes.size() % sizeof(uint32_t)) != 0) return false;
+
+    code.resize(bytes.size() / sizeof(uint32_t));
+    std::memcpy(code.data(), bytes.data(), bytes.size());
+    return !code.empty() && code[0] == 0x07230203;
 }
 
 
@@ -179,13 +207,9 @@ static uint32_t findMemoryType(VkPhysicalDevice physical, uint32_t bits, VkMemor
 static bool createTestTexture(AAssetManager* assets, VkPhysicalDevice physical, VkDevice device,
     VkQueue queue, VkCommandPool pool, VkImage* image, VkDeviceMemory* imageMemory,
     VkImageView* view, VkSampler* sampler) {
-    AAsset* asset = AAssetManager_open(assets, "texture.ppm", AASSET_MODE_BUFFER);
-    if (!asset) return false;
-    const off_t length = AAsset_getLength(asset);
-    std::string source(static_cast<size_t>(length), '\0');
-    const int bytesRead = AAsset_read(asset, source.data(), static_cast<size_t>(length));
-    AAsset_close(asset);
-    if (bytesRead != length) return false;
+    std::vector<uint8_t> textureBytes;
+    if (!readAssetBytes(assets, "texture.ppm", textureBytes, 4u * 1024u * 1024u)) return false;
+    const std::string source(textureBytes.begin(), textureBytes.end());
 
     std::istringstream input(source);
     std::string magic;

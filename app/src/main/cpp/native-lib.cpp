@@ -110,10 +110,13 @@ static void buildCameraMatrix(float aspect, float angle, float out[32]) {
             for (int k = 0; k < 4; ++k)
                 model[col * 4 + row] += rotationZ[k * 4 + row] * temp[col * 4 + k];
 
-    for (int col = 0; col < 4; ++col)
-        for (int row = 0; row < 4; ++row)
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
             for (int k = 0; k < 4; ++k)
                 out[col * 4 + row] += viewProjection[k * 4 + row] * model[col * 4 + k];
+            out[16 + col * 4 + row] = model[col * 4 + row];
+        }
+    }
 }
 
 static bool hasInstanceExtension(const char* name) {

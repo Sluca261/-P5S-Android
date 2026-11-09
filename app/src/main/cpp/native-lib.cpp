@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdint>
 #include <array>
+#include <cstddef>
 #include <atomic>
 #include <android/native_window_jni.h>
 #include <android/native_window.h>

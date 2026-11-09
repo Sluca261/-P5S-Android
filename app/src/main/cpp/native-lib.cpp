@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <android/native_window_jni.h>
+#define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
 
 static bool hasInstanceExtension(const char* extensionName) {

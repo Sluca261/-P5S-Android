@@ -45,7 +45,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 14 — carregamento robusto de assets");
+        subtitle.setText("Etapa 15 — carregamento de malhas OBJ");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -79,7 +79,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(surfaceResult);
 
         TextView notice = new TextView(this);
-        notice.setText("Teste experimental de renderização Vulkan. O cubo é uma geometria de diagnóstico com rotação e iluminação direcional; ainda não é o jogo Persona 5 Strikers.");
+        notice.setText("Teste experimental de renderização Vulkan. O cristal 3D é carregado de um arquivo OBJ externo, com rotação e iluminação direcional; ainda não é o jogo Persona 5 Strikers.");
         notice.setTextSize(12);
         notice.setPadding(0, 16, 0, 0);
         content.addView(notice);

@@ -22,25 +22,49 @@ struct MeshVertex {
     float position[3];
     float uv[2];
     float tint[3];
+    float normal[3];
 };
 
-static const MeshVertex cubeVertices[8] = {
-    {{-0.7f,-0.7f,-0.7f},{0,0},{1.0f,0.45f,0.45f}},
-    {{ 0.7f,-0.7f,-0.7f},{1,0},{0.45f,1.0f,0.45f}},
-    {{ 0.7f, 0.7f,-0.7f},{1,1},{0.45f,0.55f,1.0f}},
-    {{-0.7f, 0.7f,-0.7f},{0,1},{1.0f,0.85f,0.4f}},
-    {{-0.7f,-0.7f, 0.7f},{0,0},{1.0f,0.45f,1.0f}},
-    {{ 0.7f,-0.7f, 0.7f},{1,0},{0.4f,1.0f,1.0f}},
-    {{ 0.7f, 0.7f, 0.7f},{1,1},{1.0f,1.0f,0.45f}},
-    {{-0.7f, 0.7f, 0.7f},{0,1},{0.8f,0.8f,1.0f}}
+// 24 vértices: quatro independentes por face para preservar normais planas e UVs.
+static const MeshVertex cubeVertices[24] = {
+    // Frente (+Z)
+    {{-0.7f,-0.7f, 0.7f},{0,0},{1,0.45f,0.45f},{0,0,1}},
+    {{ 0.7f,-0.7f, 0.7f},{1,0},{1,0.45f,0.45f},{0,0,1}},
+    {{ 0.7f, 0.7f, 0.7f},{1,1},{1,0.45f,0.45f},{0,0,1}},
+    {{-0.7f, 0.7f, 0.7f},{0,1},{1,0.45f,0.45f},{0,0,1}},
+    // Trás (-Z)
+    {{ 0.7f,-0.7f,-0.7f},{0,0},{0.45f,1,0.45f},{0,0,-1}},
+    {{-0.7f,-0.7f,-0.7f},{1,0},{0.45f,1,0.45f},{0,0,-1}},
+    {{-0.7f, 0.7f,-0.7f},{1,1},{0.45f,1,0.45f},{0,0,-1}},
+    {{ 0.7f, 0.7f,-0.7f},{0,1},{0.45f,1,0.45f},{0,0,-1}},
+    // Direita (+X)
+    {{0.7f,-0.7f, 0.7f},{0,0},{0.45f,0.55f,1},{1,0,0}},
+    {{0.7f,-0.7f,-0.7f},{1,0},{0.45f,0.55f,1},{1,0,0}},
+    {{0.7f, 0.7f,-0.7f},{1,1},{0.45f,0.55f,1},{1,0,0}},
+    {{0.7f, 0.7f, 0.7f},{0,1},{0.45f,0.55f,1},{1,0,0}},
+    // Esquerda (-X)
+    {{-0.7f,-0.7f,-0.7f},{0,0},{1,0.85f,0.4f},{-1,0,0}},
+    {{-0.7f,-0.7f, 0.7f},{1,0},{1,0.85f,0.4f},{-1,0,0}},
+    {{-0.7f, 0.7f, 0.7f},{1,1},{1,0.85f,0.4f},{-1,0,0}},
+    {{-0.7f, 0.7f,-0.7f},{0,1},{1,0.85f,0.4f},{-1,0,0}},
+    // Topo (+Y)
+    {{-0.7f,0.7f, 0.7f},{0,0},{1,0.45f,1},{0,1,0}},
+    {{ 0.7f,0.7f, 0.7f},{1,0},{1,0.45f,1},{0,1,0}},
+    {{ 0.7f,0.7f,-0.7f},{1,1},{1,0.45f,1},{0,1,0}},
+    {{-0.7f,0.7f,-0.7f},{0,1},{1,0.45f,1},{0,1,0}},
+    // Base (-Y)
+    {{-0.7f,-0.7f,-0.7f},{0,0},{0.4f,1,1},{0,-1,0}},
+    {{ 0.7f,-0.7f,-0.7f},{1,0},{0.4f,1,1},{0,-1,0}},
+    {{ 0.7f,-0.7f, 0.7f},{1,1},{0.4f,1,1},{0,-1,0}},
+    {{-0.7f,-0.7f, 0.7f},{0,1},{0.4f,1,1},{0,-1,0}}
 };
 static const uint16_t cubeIndices[36] = {
-    0,2,1, 0,3,2, 4,5,6, 4,6,7,
-    0,1,5, 0,5,4, 2,3,7, 2,7,6,
-    0,4,7, 0,7,3, 1,2,6, 1,6,5
+    0,1,2, 0,2,3, 4,5,6, 4,6,7,
+    8,9,10, 8,10,11, 12,13,14, 12,14,15,
+    16,17,18, 16,18,19, 20,21,22, 20,22,23
 };
 
-static void buildCameraMatrix(float aspect, float angle, float out[16]) {
+static void buildCameraMatrix(float aspect, float angle, float out[32]) {
     const float nearPlane = 0.1f;
     const float farPlane = 10.0f;
     const float f = 1.0f;
@@ -749,15 +773,16 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     meshBinding.binding = 0;
     meshBinding.stride = sizeof(MeshVertex);
     meshBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-    VkVertexInputAttributeDescription meshAttributes[3]{};
+    VkVertexInputAttributeDescription meshAttributes[4]{};
     meshAttributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, position)};
     meshAttributes[1] = {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshVertex, uv)};
     meshAttributes[2] = {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, tint)};
+    meshAttributes[3] = {3, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, normal)};
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInput.vertexBindingDescriptionCount = 1;
     vertexInput.pVertexBindingDescriptions = &meshBinding;
-    vertexInput.vertexAttributeDescriptionCount = 3;
+    vertexInput.vertexAttributeDescriptionCount = 4;
     vertexInput.pVertexAttributeDescriptions = meshAttributes;
     VkPipelineInputAssemblyStateCreateInfo assembly{};
     assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -812,7 +837,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     VkPushConstantRange cameraRange{};
     cameraRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     cameraRange.offset = 0;
-    cameraRange.size = sizeof(float) * 16;
+    cameraRange.size = sizeof(float) * 32;
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutInfo.setLayoutCount = 1;
@@ -972,7 +997,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBeginRenderPass(command, &passBegin, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-        float cameraMatrix[16]{};
+        float cameraMatrix[32]{};
         const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f;
         buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), rotationAngle, cameraMatrix);
         vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,

@@ -19,6 +19,8 @@
 
 static std::atomic<bool> g_stopRendering{false};
 static std::atomic<uint64_t> g_buttonMask{0};
+static std::atomic<uint64_t> g_pressedMask{0}, g_releasedMask{0}, g_inputSequence{0};
+static std::atomic<float> g_commandYawOffset{0.0f};
 static std::atomic<float> g_leftX{0.0f}, g_leftY{0.0f};
 static std::atomic<float> g_rightX{0.0f}, g_rightY{0.0f};
 
@@ -607,6 +609,9 @@ Java_com_p5s_android_MainActivity_updateInputState(JNIEnv*, jobject, jlong butto
         return std::max(-1.0f, std::min(1.0f, value));
     };
     g_buttonMask.store(static_cast<uint64_t>(buttons));
+    g_pressedMask.fetch_or(static_cast<uint64_t>(pressed));
+    g_releasedMask.fetch_or(static_cast<uint64_t>(released));
+    g_inputSequence.store(static_cast<uint64_t>(sequence));
     g_leftX.store(safeAxis(leftX));
     g_leftY.store(safeAxis(leftY));
     g_rightX.store(safeAxis(rightX));
@@ -1256,11 +1261,15 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         float cameraMatrix[32]{};
         const uint64_t buttons = g_buttonMask.load();
+        const uint64_t pressedEvents = g_pressedMask.exchange(0);
+        g_releasedMask.exchange(0);
+        if (pressedEvents & (1ULL << 2)) g_commandYawOffset.fetch_add(0.18f);
+        if (pressedEvents & (1ULL << 3)) g_commandYawOffset.fetch_add(-0.18f);
         const float spinDirection = (buttons & (1ULL << 0)) ? 1.0f
                 : ((buttons & (1ULL << 1)) ? -1.0f : 0.35f);
         const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f * spinDirection;
         buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height),
-            rotationAngle, g_rightX.load(), g_rightY.load(), g_leftX.load(), g_leftY.load(), buttons, cameraMatrix);
+            rotationAngle + g_commandYawOffset.load(), g_rightX.load(), g_rightY.load(), g_leftX.load(), g_leftY.load(), buttons, cameraMatrix);
         vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                            sizeof(cameraMatrix), cameraMatrix);
         VkDeviceSize vertexOffset = 0;

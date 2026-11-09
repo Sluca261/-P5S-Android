@@ -36,6 +36,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private native void prepareVulkanRendering();
     private native void requestStopVulkanRendering();
 
+    private final GameInputState gameInput = new GameInputState();
+
     private static final int PICK_GAME_FILE = 41;
     private static final String PREFS = "p5s_launcher";
     private TextView surfaceResult;
@@ -65,7 +67,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 18 — texturas independentes por material");
+        subtitle.setText("Etapa 21 — camada unificada de entrada");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -123,13 +125,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(controlsTitle);
 
         TextView controlsInfo = new TextView(this);
-        controlsInfo.setText("Toque nos botões ou arraste nas áreas dos analógicos. Um controle USB/Bluetooth também pode ser testado. Nesta fase, os comandos são exibidos para diagnóstico e ainda não controlam o jogo.");
+        controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Esta camada prepara a futura integração, mas ainda não controla o jogo.");
         controlsInfo.setTextSize(12);
         controlsInfo.setPadding(0, 0, 0, 8);
         content.addView(controlsInfo);
 
         inputStatus = new TextView(this);
-        inputStatus.setText("Entrada: aguardando comandos");
+        inputStatus.setText("Entrada unificada: aguardando comandos");
         inputStatus.setTextSize(13);
         inputStatus.setPadding(0, 8, 0, 8);
         content.addView(inputStatus);
@@ -278,13 +280,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         button.setPadding(dpToPx(4), 0, dpToPx(4), 0);
         button.setOnTouchListener((view, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                reportInput(command + " pressionado");
+                gameInput.setButton(command, true);
+                reportInput("toque — " + gameInput.describe());
                 view.setPressed(true);
                 return true;
             }
             if (event.getAction() == MotionEvent.ACTION_UP
                     || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                reportInput(command + " liberado");
+                gameInput.setButton(command, false);
+                reportInput("toque — " + gameInput.describe());
                 view.setPressed(false);
                 return true;
             }
@@ -293,8 +297,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return button;
     }
 
+    private String gamepadCommand(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BUTTON_A: return "A";
+            case KeyEvent.KEYCODE_BUTTON_B: return "B";
+            case KeyEvent.KEYCODE_BUTTON_X: return "X";
+            case KeyEvent.KEYCODE_BUTTON_Y: return "Y";
+            case KeyEvent.KEYCODE_BUTTON_L1: return "L";
+            case KeyEvent.KEYCODE_BUTTON_R1: return "R";
+            case KeyEvent.KEYCODE_BUTTON_L2: return "ZL";
+            case KeyEvent.KEYCODE_BUTTON_R2: return "ZR";
+            case KeyEvent.KEYCODE_BUTTON_START: return "START";
+            case KeyEvent.KEYCODE_BUTTON_SELECT: return "SELECT";
+            case KeyEvent.KEYCODE_DPAD_UP: return "UP";
+            case KeyEvent.KEYCODE_DPAD_DOWN: return "DOWN";
+            case KeyEvent.KEYCODE_DPAD_LEFT: return "LEFT";
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return "RIGHT";
+            default: return null;
+        }
+    }
+
     private void reportInput(String message) {
-        if (inputStatus != null) inputStatus.setText("Entrada: " + message);
+        if (inputStatus != null) inputStatus.setText("Entrada unificada: " + message);
     }
 
     @Override
@@ -306,9 +330,12 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 == android.view.InputDevice.SOURCE_JOYSTICK;
         if (gamepad && (event.getAction() == KeyEvent.ACTION_DOWN
                 || event.getAction() == KeyEvent.ACTION_UP)) {
-            reportInput("controle físico — " + KeyEvent.keyCodeToString(event.getKeyCode())
-                    + (event.getAction() == KeyEvent.ACTION_DOWN ? " pressionado" : " liberado"));
-            return true;
+            String command = gamepadCommand(event.getKeyCode());
+            if (command != null) {
+                gameInput.setButton(command, event.getAction() == KeyEvent.ACTION_DOWN);
+                reportInput("controle físico — " + gameInput.describe());
+                return true;
+            }
         }
         return super.dispatchKeyEvent(event);
     }
@@ -318,12 +345,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         if ((event.getSource() & android.view.InputDevice.SOURCE_JOYSTICK)
                 == android.view.InputDevice.SOURCE_JOYSTICK
                 && event.getAction() == MotionEvent.ACTION_MOVE) {
-            reportInput(String.format(Locale.ROOT,
-                    "analógicos físicos — X %.2f / Y %.2f / RX %.2f / RY %.2f",
+            float rightX = event.getAxisValue(MotionEvent.AXIS_RX);
+            float rightY = event.getAxisValue(MotionEvent.AXIS_RY);
+            if (Math.abs(rightX) < 0.001f && Math.abs(rightY) < 0.001f) {
+                rightX = event.getAxisValue(MotionEvent.AXIS_Z);
+                rightY = event.getAxisValue(MotionEvent.AXIS_RZ);
+            }
+            gameInput.setAxes(
                     event.getAxisValue(MotionEvent.AXIS_X),
-                    event.getAxisValue(MotionEvent.AXIS_Y),
-                    event.getAxisValue(MotionEvent.AXIS_Z),
-                    event.getAxisValue(MotionEvent.AXIS_RZ)));
+                    event.getAxisValue(MotionEvent.AXIS_Y), rightX, rightY);
+            reportInput("controle físico — " + gameInput.describe());
             return true;
         }
         return super.onGenericMotionEvent(event);
@@ -373,7 +404,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 x = Math.max(-1f, Math.min(1f, (event.getX() - cx) / radius));
                 y = Math.max(-1f, Math.min(1f, (event.getY() - cy) / radius));
                 active = true;
-                reportInput(label + String.format(Locale.ROOT, " X %.2f / Y %.2f", x, y));
+                if (label.startsWith("ANALÓGICO")) gameInput.setAxes(x, y, gameInput.getRightX(), gameInput.getRightY());
+                else gameInput.setAxes(gameInput.getLeftX(), gameInput.getLeftY(), x, y);
+                reportInput("toque — " + gameInput.describe());
                 invalidate();
                 return true;
             }
@@ -382,7 +415,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 x = 0f;
                 y = 0f;
                 active = false;
-                reportInput(label + " centralizado");
+                if (label.startsWith("ANALÓGICO")) gameInput.setAxes(0f, 0f, gameInput.getRightX(), gameInput.getRightY());
+                else gameInput.setAxes(gameInput.getLeftX(), gameInput.getLeftY(), 0f, 0f);
+                reportInput("toque — " + gameInput.describe());
                 invalidate();
                 return true;
             }

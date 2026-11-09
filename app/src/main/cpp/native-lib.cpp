@@ -46,6 +46,11 @@ static bool loadShader(AAssetManager* manager, const char* name, std::vector<uin
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_p5s_android_MainActivity_prepareVulkanRendering(JNIEnv*, jobject) {
+    g_stopRendering.store(false);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_p5s_android_MainActivity_requestStopVulkanRendering(JNIEnv*, jobject) {
     g_stopRendering.store(true);
 }
@@ -88,7 +93,6 @@ Java_com_p5s_android_MainActivity_getVulkanInfo(JNIEnv* env, jobject) {
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject javaSurface, jobject javaAssets) {
-    g_stopRendering.store(false);
     if (!javaSurface || !javaAssets) return env->NewStringUTF("ERRO: superfície ou assets Android inválidos.");
     if (!hasInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME) ||
         !hasInstanceExtension(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME)) {

@@ -838,7 +838,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBeginRenderPass(command, &passBegin, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-        vkCmdDraw(command, 3, 1, 0, 0);
+        vkCmdDraw(command, 6, 1, 0, 0);
         vkCmdEndRenderPass(command);
         result = vkEndCommandBuffer(command);
         if (result != VK_SUCCESS) return fail("ERRO ao finalizar command buffer: " + std::to_string(result));
@@ -887,7 +887,8 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     output += "\nResolução: " + std::to_string(extent.width) + " x " + std::to_string(extent.height);
     output += "\nImagens na swapchain: " + std::to_string(imageCount);
     output += "\nPipeline gráfica: ativa";
-    output += "\nGeometria: 3 vértices via gl_VertexIndex";
+    output += "\nGeometria: 2 triângulos sobrepostos (6 vértices)";
+    output += "\nTeste visual: triângulo frontal deve ocultar parte do triângulo traseiro";
     output += "\nTextura: imagem PPM 16x16 carregada na GPU";
     output += "\nAmostragem: VkImage + VkSampler + Descriptor Set";
     output += "\nProfundidade: depth buffer ativo (teste LESS, escrita habilitada)";

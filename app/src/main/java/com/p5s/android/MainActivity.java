@@ -19,6 +19,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private native String getVulkanInfo();
     private native String renderVulkanLoop(Surface surface, AssetManager assets);
+    private native void prepareVulkanRendering();
     private native void requestStopVulkanRendering();
 
     private TextView surfaceResult;
@@ -93,13 +94,17 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void startRenderer(Surface surface) {
-        stopRenderer();
+        if (!stopRenderer()) {
+            surfaceResult.setText("Aguardando a thread Vulkan anterior encerrar com segurança...");
+            return;
+        }
         if (surface == null || !surface.isValid()) {
             surfaceResult.setText("Aguardando uma superfície Android válida...");
             return;
         }
         activeSurface = surface;
         surfaceResult.setText("Renderização Vulkan contínua em execução...\nA GPU está apresentando o triângulo em uma thread dedicada.");
+        prepareVulkanRendering();
         Thread worker = new Thread(() -> {
             Thread current = Thread.currentThread();
             String result = renderVulkanLoop(surface, getAssets());
@@ -111,22 +116,27 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         worker.start();
     }
 
-    private void stopRenderer() {
+    private boolean stopRenderer() {
         Thread worker = renderThread;
         if (worker != null && worker.isAlive()) {
             requestStopVulkanRendering();
             try {
-                worker.join(1500);
+                worker.join(3000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }
-        if (renderThread == worker && (worker == null || !worker.isAlive())) renderThread = null;
+        if (worker != null && worker.isAlive()) return false;
+        if (renderThread == worker) renderThread = null;
+        return true;
     }
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
         surfaceAvailable = true;
+        android.graphics.Rect frame = holder.getSurfaceFrame();
+        lastSurfaceWidth = frame.width();
+        lastSurfaceHeight = frame.height();
         startRenderer(holder.getSurface());
     }
 

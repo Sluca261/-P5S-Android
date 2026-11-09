@@ -34,7 +34,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private native String getVulkanInfo();
     private native String renderVulkanLoop(Surface surface, AssetManager assets);
     private native void prepareVulkanRendering();
-    private native void requestStopVulkanRendering();
+    private native void requestStopVulkanRendering();\n    private native void updateInputState(long buttons, float leftX, float leftY, float rightX, float rightY);
 
     private final GameInputState gameInput = new GameInputState();
 
@@ -67,7 +67,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 21 — camada unificada de entrada");
+        subtitle.setText("Etapa 22 — entrada conectada à renderização Vulkan");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -125,13 +125,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(controlsTitle);
 
         TextView controlsInfo = new TextView(this);
-        controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Esta camada prepara a futura integração, mas ainda não controla o jogo.");
+        controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Os analógicos já influenciam a transformação do modelo de diagnóstico Vulkan; os botões permanecem registrados para futura integração ao runtime.");
         controlsInfo.setTextSize(12);
         controlsInfo.setPadding(0, 0, 0, 8);
         content.addView(controlsInfo);
 
         inputStatus = new TextView(this);
-        inputStatus.setText("Entrada unificada: aguardando comandos");
+        inputStatus.setText("Entrada Vulkan: aguardando comandos");
         inputStatus.setTextSize(13);
         inputStatus.setPadding(0, 8, 0, 8);
         content.addView(inputStatus);

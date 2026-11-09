@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cmath>
 #include <atomic>
+#include <unordered_map>
 #include <android/native_window_jni.h>
 #include <android/native_window.h>
 #include <android/asset_manager_jni.h>
@@ -202,6 +203,8 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
     std::vector<std::array<float, 3>> positions;
     std::vector<std::array<float, 2>> texcoords;
     std::vector<std::array<float, 3>> normals;
+    std::unordered_map<std::string, std::array<float, 3>> materials;
+    std::array<float, 3> currentTint = {1.0f, 1.0f, 1.0f};
     mesh.vertices.clear();
     mesh.indices.clear();
 
@@ -212,7 +215,34 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
         row >> kind;
         if (kind.empty() || kind[0] == '#') continue;
 
-        if (kind == "v") {
+        if (kind == "mtllib") {
+            std::string materialFile;
+            if (!(row >> materialFile) || materialFile.find('/') != std::string::npos ||
+                materialFile.find("..") != std::string::npos) return false;
+            std::vector<uint8_t> materialBytes;
+            if (!readAssetBytes(assets, materialFile.c_str(), materialBytes, 256u * 1024u)) return false;
+            std::istringstream materialInput(std::string(materialBytes.begin(), materialBytes.end()));
+            std::string materialLine, activeMaterial;
+            while (std::getline(materialInput, materialLine)) {
+                std::istringstream materialRow(materialLine);
+                std::string materialKind;
+                materialRow >> materialKind;
+                if (materialKind == "newmtl") {
+                    materialRow >> activeMaterial;
+                } else if (materialKind == "Kd" && !activeMaterial.empty()) {
+                    std::array<float, 3> diffuse{};
+                    if (!(materialRow >> diffuse[0] >> diffuse[1] >> diffuse[2])) return false;
+                    for (float& channel : diffuse) channel = std::max(0.0f, std::min(1.0f, channel));
+                    materials[activeMaterial] = diffuse;
+                }
+            }
+        } else if (kind == "usemtl") {
+            std::string materialName;
+            if (!(row >> materialName)) return false;
+            const auto found = materials.find(materialName);
+            if (found == materials.end()) return false;
+            currentTint = found->second;
+        } else if (kind == "v") {
             std::array<float, 3> value{};
             if (!(row >> value[0] >> value[1] >> value[2])) return false;
             positions.push_back(value);
@@ -275,7 +305,9 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
                     vertex.position[2] = p[2];
                     vertex.uv[0] = corner.uv >= 0 ? texcoords[corner.uv][0] : 0.0f;
                     vertex.uv[1] = corner.uv >= 0 ? texcoords[corner.uv][1] : 0.0f;
-                    vertex.tint[0] = vertex.tint[1] = vertex.tint[2] = 1.0f;
+                    vertex.tint[0] = currentTint[0];
+                    vertex.tint[1] = currentTint[1];
+                    vertex.tint[2] = currentTint[2];
                     if (corner.normal >= 0) {
                         const auto& n = normals[corner.normal];
                         vertex.normal[0] = n[0]; vertex.normal[1] = n[1]; vertex.normal[2] = n[2];

@@ -5,6 +5,7 @@
 #include <sstream>
 #include <cstring>
 #include <cstdint>
+#include <array>
 #include <atomic>
 #include <android/native_window_jni.h>
 #include <android/native_window.h>
@@ -14,6 +15,28 @@
 #include <vulkan/vulkan.h>
 
 static std::atomic<bool> g_stopRendering{false};
+
+struct MeshVertex {
+    float position[3];
+    float uv[2];
+    float tint[3];
+};
+
+static const MeshVertex cubeVertices[8] = {
+    {{-0.7f,-0.7f,-0.7f},{0,0},{1.0f,0.45f,0.45f}},
+    {{ 0.7f,-0.7f,-0.7f},{1,0},{0.45f,1.0f,0.45f}},
+    {{ 0.7f, 0.7f,-0.7f},{1,1},{0.45f,0.55f,1.0f}},
+    {{-0.7f, 0.7f,-0.7f},{0,1},{1.0f,0.85f,0.4f}},
+    {{-0.7f,-0.7f, 0.7f},{0,0},{1.0f,0.45f,1.0f}},
+    {{ 0.7f,-0.7f, 0.7f},{1,0},{0.4f,1.0f,1.0f}},
+    {{ 0.7f, 0.7f, 0.7f},{1,1},{1.0f,1.0f,0.45f}},
+    {{-0.7f, 0.7f, 0.7f},{0,1},{0.8f,0.8f,1.0f}}
+};
+static const uint16_t cubeIndices[36] = {
+    0,2,1, 0,3,2, 4,5,6, 4,6,7,
+    0,1,5, 0,5,4, 2,3,7, 2,7,6,
+    0,4,7, 0,7,3, 1,2,6, 1,6,5
+};
 
 static void buildCameraMatrix(float aspect, float out[16]) {
     const float nearPlane = 0.1f;
@@ -363,6 +386,8 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     VkSemaphore imageAvailable = VK_NULL_HANDLE, renderFinished = VK_NULL_HANDLE;
     VkFence frameFence = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkBuffer vertexBuffer = VK_NULL_HANDLE, indexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexMemory = VK_NULL_HANDLE, indexMemory = VK_NULL_HANDLE;
     VkImage depthImage = VK_NULL_HANDLE;
     VkDeviceMemory depthMemory = VK_NULL_HANDLE;
     VkImageView depthView = VK_NULL_HANDLE;
@@ -386,6 +411,10 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         if (device != VK_NULL_HANDLE) {
             for (VkFramebuffer fb : framebuffers) if (fb) vkDestroyFramebuffer(device, fb, nullptr);
             if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
+            if (vertexBuffer) vkDestroyBuffer(device, vertexBuffer, nullptr);
+            if (vertexMemory) vkFreeMemory(device, vertexMemory, nullptr);
+            if (indexBuffer) vkDestroyBuffer(device, indexBuffer, nullptr);
+            if (indexMemory) vkFreeMemory(device, indexMemory, nullptr);
             if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
             if (depthView) vkDestroyImageView(device, depthView, nullptr);
             if (depthImage) vkDestroyImage(device, depthImage, nullptr);
@@ -687,8 +716,20 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     stages[1].module = fragmentModule;
     stages[1].pName = "main";
 
+    VkVertexInputBindingDescription meshBinding{};
+    meshBinding.binding = 0;
+    meshBinding.stride = sizeof(MeshVertex);
+    meshBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    VkVertexInputAttributeDescription meshAttributes[3]{};
+    meshAttributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, position)};
+    meshAttributes[1] = {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(MeshVertex, uv)};
+    meshAttributes[2] = {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(MeshVertex, tint)};
     VkPipelineVertexInputStateCreateInfo vertexInput{};
     vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &meshBinding;
+    vertexInput.vertexAttributeDescriptionCount = 3;
+    vertexInput.pVertexAttributeDescriptions = meshAttributes;
     VkPipelineInputAssemblyStateCreateInfo assembly{};
     assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -775,6 +816,39 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     poolInfo.queueFamilyIndex = queueIndex;
     result = vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool);
     if (result != VK_SUCCESS) return fail("ERRO ao criar command pool: " + std::to_string(result));
+
+    auto uploadMeshBuffer = [&](const void* data, VkDeviceSize size, VkBufferUsageFlags usage,
+                                VkBuffer* buffer, VkDeviceMemory* memory) -> bool {
+        VkBufferCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        info.size = size;
+        info.usage = usage;
+        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(device, &info, nullptr, buffer) != VK_SUCCESS) return false;
+        VkMemoryRequirements req{};
+        vkGetBufferMemoryRequirements(device, *buffer, &req);
+        uint32_t type = findMemoryType(physical, req.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (type == UINT32_MAX) return false;
+        VkMemoryAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc.allocationSize = req.size;
+        alloc.memoryTypeIndex = type;
+        if (vkAllocateMemory(device, &alloc, nullptr, memory) != VK_SUCCESS) return false;
+        if (vkBindBufferMemory(device, *buffer, *memory, 0) != VK_SUCCESS) return false;
+        void* mapped = nullptr;
+        if (vkMapMemory(device, *memory, 0, size, 0, &mapped) != VK_SUCCESS) return false;
+        std::memcpy(mapped, data, static_cast<size_t>(size));
+        vkUnmapMemory(device, *memory);
+        return true;
+    };
+    if (!uploadMeshBuffer(cubeVertices, sizeof(cubeVertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                          &vertexBuffer, &vertexMemory))
+        return fail("ERRO ao criar buffer de vértices da malha 3D.");
+    if (!uploadMeshBuffer(cubeIndices, sizeof(cubeIndices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                          &indexBuffer, &indexMemory))
+        return fail("ERRO ao criar buffer de índices da malha 3D.");
+
     if (!createTestTexture(assets, physical, device, queue, commandPool,
         &textureImage, &textureMemory, &textureView, &textureSampler))
         return fail("ERRO: não foi possível carregar texture.ppm na GPU.");
@@ -873,7 +947,10 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), cameraMatrix);
         vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                            sizeof(cameraMatrix), cameraMatrix);
-        vkCmdDraw(command, 6, 1, 0, 0);
+        VkDeviceSize vertexOffset = 0;
+        vkCmdBindVertexBuffers(command, 0, 1, &vertexBuffer, &vertexOffset);
+        vkCmdBindIndexBuffer(command, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(command, 36, 1, 0, 0, 0);
         vkCmdEndRenderPass(command);
         result = vkEndCommandBuffer(command);
         if (result != VK_SUCCESS) return fail("ERRO ao finalizar command buffer: " + std::to_string(result));

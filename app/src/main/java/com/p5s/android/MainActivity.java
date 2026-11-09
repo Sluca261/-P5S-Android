@@ -308,12 +308,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         String sizeLabel = sizeBytes >= 0 ? formatFileSize(sizeBytes) : "não informado";
         String mimeLabel = mimeType == null ? "não informado" : mimeType;
         String containerStatus = validateContainerHeader(uri, name, sizeBytes);
+        String structureStatus = inspectContainerMetadata(uri, name, sizeBytes);
         selectedGameStatus.setText("Arquivo selecionado: " + name
                 + "\nPermissão de leitura persistida: "
                 + (permissionAvailable ? "disponível" : "não confirmada")
                 + "\nTamanho informado pelo provedor: " + sizeLabel
                 + "\nTipo MIME informado: " + mimeLabel
-                + "\nValidação básica do cabeçalho: " + containerStatus);
+                + "\nValidação básica do cabeçalho: " + containerStatus
+                + "\nEstrutura local: " + structureStatus);
     }
 
     // Lê somente os quatro bytes de identificação do formato; não descriptografa,
@@ -361,6 +363,101 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         } catch (Exception e) {
             return "não foi possível ler o cabeçalho: " + e.getClass().getSimpleName();
         }
+    }
+
+    // Inspeciona somente a tabela pública PFS0 de um NSP. Não abre NCA,
+    // não descriptografa dados, não acessa chaves e não altera o arquivo.
+    // Para XCI, limita-se à assinatura HEAD até existir um parser específico.
+    private String inspectContainerMetadata(Uri uri, String name, long fileSize) {
+        if (!name.toLowerCase(Locale.ROOT).endsWith(".nsp")) {
+            return name.toLowerCase(Locale.ROOT).endsWith(".xci")
+                    ? "XCI reconhecido; partições internas ainda não analisadas"
+                    : "formato não suportado";
+        }
+
+        try (InputStream raw = getContentResolver().openInputStream(uri)) {
+            if (raw == null) return "não foi possível abrir o arquivo";
+            byte[] header = new byte[16];
+            if (!readFully(raw, header)) return "cabeçalho PFS0 incompleto";
+            if (header[0] != 'P' || header[1] != 'F'
+                    || header[2] != 'S' || header[3] != '0') {
+                return "sem tabela PFS0 válida";
+            }
+
+            long fileCount = uint32LE(header, 4);
+            long stringTableSize = uint32LE(header, 8);
+            if (fileCount == 0 || fileCount > 10000L
+                    || stringTableSize > 1024L * 1024L) {
+                return "dimensões da tabela fora dos limites de segurança";
+            }
+
+            long entriesBytes = fileCount * 0x18L;
+            long dataStart = 0x10L + entriesBytes + stringTableSize;
+            if (dataStart < 0 || (fileSize >= 0 && dataStart > fileSize)) {
+                return "tabela excede o tamanho informado do arquivo";
+            }
+
+            byte[] entries = new byte[(int) entriesBytes];
+            if (!readFully(raw, entries)) return "tabela de entradas incompleta";
+            byte[] strings = new byte[(int) stringTableSize];
+            if (!readFully(raw, strings)) return "tabela de nomes incompleta";
+
+            int shown = 0;
+            StringBuilder sample = new StringBuilder();
+            for (int i = 0; i < (int) fileCount; i++) {
+                int p = i * 0x18;
+                long offset = uint64LE(entries, p);
+                long size = uint64LE(entries, p + 8);
+                long nameOffset = uint32LE(entries, p + 16);
+                if (offset < 0 || size < 0 || nameOffset >= stringTableSize
+                        || offset > Long.MAX_VALUE - dataStart
+                        || size > Long.MAX_VALUE - dataStart - offset) {
+                    return "entrada " + (i + 1) + " contém campos inválidos";
+                }
+                long end = dataStart + offset + size;
+                if (fileSize >= 0 && end > fileSize) {
+                    return "entrada " + (i + 1) + " aponta além do arquivo";
+                }
+                if (shown < 6) {
+                    int start = (int) nameOffset;
+                    int finish = start;
+                    while (finish < strings.length && strings[finish] != 0) finish++;
+                    String entryName = new String(strings, start, finish - start,
+                            java.nio.charset.StandardCharsets.UTF_8);
+                    if (entryName.length() == 0) entryName = "(nome vazio)";
+                    if (shown > 0) sample.append(" | ");
+                    sample.append(entryName).append(" (").append(formatFileSize(size)).append(")");
+                    shown++;
+                }
+            }
+            return fileCount + " entrada(s) PFS0; amostra: " + sample;
+        } catch (Exception e) {
+            return "falha na leitura estrutural: " + e.getClass().getSimpleName();
+        }
+    }
+
+    private boolean readFully(InputStream input, byte[] target) throws java.io.IOException {
+        int count = 0;
+        while (count < target.length) {
+            int read = input.read(target, count, target.length - count);
+            if (read < 0) return false;
+            count += read;
+        }
+        return true;
+    }
+
+    private long uint32LE(byte[] data, int offset) {
+        return ((long) data[offset] & 0xffL)
+                | (((long) data[offset + 1] & 0xffL) << 8)
+                | (((long) data[offset + 2] & 0xffL) << 16)
+                | (((long) data[offset + 3] & 0xffL) << 24);
+    }
+
+    private long uint64LE(byte[] data, int offset) {
+        long low = uint32LE(data, offset);
+        long high = uint32LE(data, offset + 4);
+        if ((high & 0x80000000L) != 0) return -1L;
+        return (high << 32) | low;
     }
 
     // Consulta somente metadados fornecidos pelo Storage Access Framework.

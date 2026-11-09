@@ -68,7 +68,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 24 — eventos de pressionar e soltar encaminhados por JNI");
+        subtitle.setText("Etapa 25 — suporte aos cliques L3 e R3");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -126,7 +126,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(controlsTitle);
 
         TextView controlsInfo = new TextView(this);
-        controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Os analógicos e os botões direcionais e superiores já influenciam o modelo de diagnóstico Vulkan. A e B alteram o sentido da rotação; L e R giram a orientação; o direcional desloca o modelo. A camada também registra eventos distintos de pressionar e soltar, com sequência crescente.");
+        controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Os analógicos e os botões direcionais e superiores já influenciam o modelo de diagnóstico Vulkan. A e B alteram o sentido da rotação; L e R giram a orientação; o direcional desloca o modelo. A camada também registra eventos distintos de pressionar e soltar, com sequência crescente, incluindo os cliques L3 e R3.");
         controlsInfo.setTextSize(12);
         controlsInfo.setPadding(0, 0, 0, 8);
         content.addView(controlsInfo);
@@ -147,6 +147,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         shoulderRow.addView(makeTouchButton("ZR", "ZR"));
         shoulderRow.addView(makeTouchButton("R", "R"));
         content.addView(shoulderRow);
+
+        LinearLayout stickClickRow = new LinearLayout(this);
+        stickClickRow.setGravity(Gravity.CENTER);
+        stickClickRow.setOrientation(LinearLayout.HORIZONTAL);
+        stickClickRow.addView(makeTouchButton("L3", "L3"));
+        stickClickRow.addView(makeTouchButton("R3", "R3"));
+        content.addView(stickClickRow);
 
         LinearLayout dpadRow = new LinearLayout(this);
         dpadRow.setGravity(Gravity.CENTER);
@@ -310,6 +317,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             case KeyEvent.KEYCODE_BUTTON_R2: return "ZR";
             case KeyEvent.KEYCODE_BUTTON_START: return "START";
             case KeyEvent.KEYCODE_BUTTON_SELECT: return "SELECT";
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return "L3";
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return "R3";
             case KeyEvent.KEYCODE_DPAD_UP: return "UP";
             case KeyEvent.KEYCODE_DPAD_DOWN: return "DOWN";
             case KeyEvent.KEYCODE_DPAD_LEFT: return "LEFT";

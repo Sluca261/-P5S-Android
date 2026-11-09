@@ -46,3 +46,8 @@ O launcher Android permite selecionar uma cópia local de jogo em formato `.nsp`
 ## Interpretação nativa dos botões (etapa 23)
 
 A atividade Java encaminha o estado completo de entrada à função JNI `updateInputState`, que valida os quatro eixos e armazena o bitmask de botões em variáveis atômicas. No renderizador de diagnóstico, A e B alteram o sentido da rotação automática, L e R acrescentam rotação horizontal e o direcional desloca o modelo. Os analógicos continuam controlando deslocamento e orientação. Isso valida o caminho de entrada até a camada nativa/Vulkan; ainda não representa ações de Persona 5 Strikers nem integração com um runtime de jogo.
+
+
+## Eventos de entrada e comandos de borda (etapa 24)
+
+A camada unificada agora diferencia o estado mantido de cada botão dos eventos de pressionar e soltar. Cada transição válida recebe uma sequência crescente; repetições do mesmo estado não geram eventos duplicados. A ponte JNI encaminha o bitmask atual, as máscaras de eventos e a sequência ao código nativo. O renderizador consome os eventos de pressionamento uma única vez: X e Y aplicam pequenos ajustes acumulativos à orientação do modelo de diagnóstico. Isso valida o ciclo de eventos e a comunicação Java/JNI/Vulkan, sem representar comandos do jogo real.

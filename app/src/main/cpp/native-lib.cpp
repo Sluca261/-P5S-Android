@@ -15,6 +15,31 @@
 
 static std::atomic<bool> g_stopRendering{false};
 
+static void buildCameraMatrix(float aspect, float out[16]) {
+    const float nearPlane = 0.1f;
+    const float farPlane = 10.0f;
+    const float f = 1.0f; // câmera com campo de visão aproximado de 90 graus
+    float projection[16]{};
+    projection[0] = f / aspect;
+    projection[5] = -f; // Vulkan: inverter Y para manter a orientação da imagem
+    projection[10] = farPlane / (nearPlane - farPlane);
+    projection[11] = -1.0f;
+    projection[14] = (farPlane * nearPlane) / (nearPlane - farPlane);
+
+    float view[16]{};
+    view[0] = view[5] = view[10] = view[15] = 1.0f;
+    view[14] = -3.0f; // câmera posicionada em (0, 0, 3), olhando para a origem
+
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            out[col * 4 + row] = 0.0f;
+            for (int k = 0; k < 4; ++k)
+                out[col * 4 + row] += projection[k * 4 + row] * view[col * 4 + k];
+        }
+    }
+}
+
+
 static bool hasInstanceExtension(const char* name) {
     uint32_t count = 0;
     if (vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr) != VK_SUCCESS) return false;
@@ -714,10 +739,16 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     descriptorLayoutInfo.pBindings = &textureBinding;
     result = vkCreateDescriptorSetLayout(device, &descriptorLayoutInfo, nullptr, &descriptorLayout);
     if (result != VK_SUCCESS) return fail("ERRO ao criar layout de textura: " + std::to_string(result));
+    VkPushConstantRange cameraRange{};
+    cameraRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    cameraRange.offset = 0;
+    cameraRange.size = sizeof(float) * 16;
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts = &descriptorLayout;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &cameraRange;
     result = vkCreatePipelineLayout(device, &layoutInfo, nullptr, &pipelineLayout);
     if (result != VK_SUCCESS) return fail("ERRO ao criar pipeline layout: " + std::to_string(result));
 
@@ -838,6 +869,10 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBeginRenderPass(command, &passBegin, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+        float cameraMatrix[16]{};
+        buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), cameraMatrix);
+        vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                           sizeof(cameraMatrix), cameraMatrix);
         vkCmdDraw(command, 6, 1, 0, 0);
         vkCmdEndRenderPass(command);
         result = vkEndCommandBuffer(command);
@@ -887,7 +922,9 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     output += "\nResolução: " + std::to_string(extent.width) + " x " + std::to_string(extent.height);
     output += "\nImagens na swapchain: " + std::to_string(imageCount);
     output += "\nPipeline gráfica: ativa";
-    output += "\nGeometria: 2 triângulos sobrepostos (6 vértices)";
+    output += "\nGeometria: 2 triângulos em coordenadas 3D";
+    output += "\nCâmera: matriz View + Projection (perspectiva)";
+    output += "\nParâmetros: FOV aproximado 90°, near 0.1, far 10.0";
     output += "\nTeste visual: triângulo frontal deve ocultar parte do triângulo traseiro";
     output += "\nTextura: imagem PPM 16x16 carregada na GPU";
     output += "\nAmostragem: VkImage + VkSampler + Descriptor Set";

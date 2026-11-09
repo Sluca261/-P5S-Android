@@ -293,15 +293,54 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             selectedGameStatus.setText("Nenhum arquivo de jogo selecionado.");
             return;
         }
-        boolean readable = false;
-        try (java.io.InputStream stream =
-                     getContentResolver().openInputStream(Uri.parse(uriText))) {
-            readable = stream != null;
-        } catch (Exception ignored) {
+        Uri uri = Uri.parse(uriText);
+        boolean permissionAvailable = false;
+        for (android.content.UriPermission permission :
+                getContentResolver().getPersistedUriPermissions()) {
+            if (permission.getUri().equals(uri) && permission.isReadPermission()) {
+                permissionAvailable = true;
+                break;
+            }
         }
-        selectedGameStatus.setText(readable
-                ? "Arquivo selecionado: " + name + "\nAcesso local: disponível."
-                : "Arquivo selecionado: " + name + "\nAcesso local: indisponível. Selecione-o novamente.");
+        long sizeBytes = queryDisplaySize(uri);
+        String mimeType = getContentResolver().getType(uri);
+        String sizeLabel = sizeBytes >= 0 ? formatFileSize(sizeBytes) : "não informado";
+        String mimeLabel = mimeType == null ? "não informado" : mimeType;
+        selectedGameStatus.setText("Arquivo selecionado: " + name
+                + "\nPermissão de leitura persistida: "
+                + (permissionAvailable ? "disponível" : "não confirmada")
+                + "\nTamanho informado pelo provedor: " + sizeLabel
+                + "\nTipo MIME informado: " + mimeLabel
+                + "\nValidação do contêiner: ainda não realizada.");
+    }
+
+    // Consulta somente metadados fornecidos pelo Storage Access Framework.
+    // Não abre InputStream nem lê bytes do NSP/XCI.
+    private long queryDisplaySize(Uri uri) {
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri,
+                    new String[]{OpenableColumns.SIZE}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (index >= 0 && !cursor.isNull(index)) return cursor.getLong(index);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return -1L;
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes < 0) return "não informado";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024L * 1024L)
+            return String.format(Locale.ROOT, "%.1f KiB", bytes / 1024.0);
+        if (bytes < 1024L * 1024L * 1024L)
+            return String.format(Locale.ROOT, "%.2f MiB", bytes / (1024.0 * 1024.0));
+        return String.format(Locale.ROOT, "%.2f GiB",
+                bytes / (1024.0 * 1024.0 * 1024.0));
     }
 
 

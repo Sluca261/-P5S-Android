@@ -45,7 +45,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 8 — geometria 3D e depth buffer");
+        subtitle.setText("Etapa 9 — teste visual de profundidade");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);

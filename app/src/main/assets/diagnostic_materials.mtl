@@ -1,0 +1,6 @@
+# Materiais originais de diagnóstico.
+newmtl ruby
+Kd 0.95 0.22 0.28
+
+newmtl azure
+Kd 0.22 0.48 1.0

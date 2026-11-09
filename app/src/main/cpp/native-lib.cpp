@@ -170,6 +170,154 @@ static bool readAssetBytes(AAssetManager* manager, const char* name,
     return true;
 }
 
+
+// Malha OBJ simples para assets de diagnóstico.
+// Suporta v, vt, vn, faces triangulares/poligonais e índices negativos.
+struct ObjMesh {
+    std::vector<MeshVertex> vertices;
+    std::vector<uint16_t> indices;
+};
+
+static bool parseObjIndex(const std::string& token, size_t start, size_t end,
+                          size_t available, int& resolved) {
+    if (start >= end) return false;
+    try {
+        const int raw = std::stoi(token.substr(start, end - start));
+        if (raw == 0) return false;
+        const long index = raw > 0 ? static_cast<long>(raw - 1)
+                                   : static_cast<long>(available) + raw;
+        if (index < 0 || index >= static_cast<long>(available)) return false;
+        resolved = static_cast<int>(index);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& mesh) {
+    std::vector<uint8_t> bytes;
+    if (!readAssetBytes(assets, assetName, bytes, 1024u * 1024u)) return false;
+    const std::string source(bytes.begin(), bytes.end());
+    std::istringstream input(source);
+    std::vector<std::array<float, 3>> positions;
+    std::vector<std::array<float, 2>> texcoords;
+    std::vector<std::array<float, 3>> normals;
+    mesh.vertices.clear();
+    mesh.indices.clear();
+
+    std::string line;
+    while (std::getline(input, line)) {
+        std::istringstream row(line);
+        std::string kind;
+        row >> kind;
+        if (kind.empty() || kind[0] == '#') continue;
+
+        if (kind == "v") {
+            std::array<float, 3> value{};
+            if (!(row >> value[0] >> value[1] >> value[2])) return false;
+            positions.push_back(value);
+            if (positions.size() > 20000) return false;
+        } else if (kind == "vt") {
+            std::array<float, 2> value{};
+            if (!(row >> value[0] >> value[1])) return false;
+            texcoords.push_back(value);
+        } else if (kind == "vn") {
+            std::array<float, 3> value{};
+            if (!(row >> value[0] >> value[1] >> value[2])) return false;
+            normals.push_back(value);
+        } else if (kind == "f") {
+            struct Corner { int position; int uv; int normal; };
+            std::vector<Corner> polygon;
+            std::string token;
+            while (row >> token) {
+                if (!token.empty() && token[0] == '#') break;
+                Corner corner{-1, -1, -1};
+                const size_t first = token.find('/');
+                const size_t second = first == std::string::npos
+                    ? std::string::npos : token.find('/', first + 1);
+                const size_t posEnd = first == std::string::npos ? token.size() : first;
+                if (!parseObjIndex(token, 0, posEnd, positions.size(), corner.position)) return false;
+                if (first != std::string::npos) {
+                    const size_t uvEnd = second == std::string::npos ? token.size() : second;
+                    if (uvEnd > first + 1 &&
+                        !parseObjIndex(token, first + 1, uvEnd, texcoords.size(), corner.uv)) return false;
+                    if (second != std::string::npos && second + 1 < token.size() &&
+                        !parseObjIndex(token, second + 1, token.size(), normals.size(), corner.normal)) return false;
+                }
+                polygon.push_back(corner);
+                if (polygon.size() > 128) return false;
+            }
+            if (polygon.size() < 3) return false;
+
+            for (size_t fan = 1; fan + 1 < polygon.size(); ++fan) {
+                const Corner triangle[3] = {polygon[0], polygon[fan], polygon[fan + 1]};
+                const auto& a = positions[triangle[0].position];
+                const auto& b = positions[triangle[1].position];
+                const auto& c = positions[triangle[2].position];
+                const float ab[3] = {b[0]-a[0], b[1]-a[1], b[2]-a[2]};
+                const float ac[3] = {c[0]-a[0], c[1]-a[1], c[2]-a[2]};
+                float faceNormal[3] = {
+                    ab[1]*ac[2]-ab[2]*ac[1],
+                    ab[2]*ac[0]-ab[0]*ac[2],
+                    ab[0]*ac[1]-ab[1]*ac[0]
+                };
+                float length = std::sqrt(faceNormal[0]*faceNormal[0] +
+                    faceNormal[1]*faceNormal[1] + faceNormal[2]*faceNormal[2]);
+                if (length < 0.000001f) return false;
+                for (float& component : faceNormal) component /= length;
+
+                for (const Corner& corner : triangle) {
+                    if (mesh.vertices.size() >= 65535) return false;
+                    const auto& p = positions[corner.position];
+                    MeshVertex vertex{};
+                    vertex.position[0] = p[0];
+                    vertex.position[1] = p[1];
+                    vertex.position[2] = p[2];
+                    vertex.uv[0] = corner.uv >= 0 ? texcoords[corner.uv][0] : 0.0f;
+                    vertex.uv[1] = corner.uv >= 0 ? texcoords[corner.uv][1] : 0.0f;
+                    vertex.tint[0] = vertex.tint[1] = vertex.tint[2] = 1.0f;
+                    if (corner.normal >= 0) {
+                        const auto& n = normals[corner.normal];
+                        vertex.normal[0] = n[0]; vertex.normal[1] = n[1]; vertex.normal[2] = n[2];
+                    } else {
+                        vertex.normal[0] = faceNormal[0];
+                        vertex.normal[1] = faceNormal[1];
+                        vertex.normal[2] = faceNormal[2];
+                    }
+                    mesh.indices.push_back(static_cast<uint16_t>(mesh.vertices.size()));
+                    mesh.vertices.push_back(vertex);
+                }
+            }
+        }
+    }
+
+    if (mesh.vertices.empty() || mesh.indices.empty()) return false;
+
+    // Centraliza e ajusta o tamanho do modelo para a câmera de teste.
+    float minimum[3] = {positions[0][0], positions[0][1], positions[0][2]};
+    float maximum[3] = {minimum[0], minimum[1], minimum[2]};
+    for (const auto& p : positions) {
+        for (int axis = 0; axis < 3; ++axis) {
+            minimum[axis] = std::min(minimum[axis], p[axis]);
+            maximum[axis] = std::max(maximum[axis], p[axis]);
+        }
+    }
+    const float center[3] = {
+        (minimum[0]+maximum[0])*0.5f,
+        (minimum[1]+maximum[1])*0.5f,
+        (minimum[2]+maximum[2])*0.5f
+    };
+    const float largest = std::max({maximum[0]-minimum[0],
+        maximum[1]-minimum[1], maximum[2]-minimum[2]});
+    if (largest < 0.000001f) return false;
+    const float scale = 1.4f / largest;
+    for (MeshVertex& vertex : mesh.vertices) {
+        for (int axis = 0; axis < 3; ++axis)
+            vertex.position[axis] = (vertex.position[axis] - center[axis]) * scale;
+    }
+    return true;
+}
+
 static bool loadShader(AAssetManager* manager, const char* name, std::vector<uint32_t>& code) {
     std::vector<uint8_t> bytes;
     if (!readAssetBytes(manager, name, bytes, 16u * 1024u * 1024u) ||
@@ -923,12 +1071,17 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkUnmapMemory(device, *memory);
         return true;
     };
-    if (!uploadMeshBuffer(cubeVertices, sizeof(cubeVertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                          &vertexBuffer, &vertexMemory))
-        return fail("ERRO ao criar buffer de vértices da malha 3D.");
-    if (!uploadMeshBuffer(cubeIndices, sizeof(cubeIndices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                          &indexBuffer, &indexMemory))
-        return fail("ERRO ao criar buffer de índices da malha 3D.");
+    ObjMesh diagnosticMesh;
+    if (!loadObjMesh(assets, "diagnostic_model.obj", diagnosticMesh))
+        return fail("ERRO: não foi possível interpretar diagnostic_model.obj.");
+    if (!uploadMeshBuffer(diagnosticMesh.vertices.data(),
+            diagnosticMesh.vertices.size() * sizeof(MeshVertex),
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, &vertexBuffer, &vertexMemory))
+        return fail("ERRO ao criar buffer de vértices da malha OBJ.");
+    if (!uploadMeshBuffer(diagnosticMesh.indices.data(),
+            diagnosticMesh.indices.size() * sizeof(uint16_t),
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, &indexBuffer, &indexMemory))
+        return fail("ERRO ao criar buffer de índices da malha OBJ.");
 
     if (!createTestTexture(assets, physical, device, queue, commandPool,
         &textureImage, &textureMemory, &textureView, &textureSampler))
@@ -1032,7 +1185,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         VkDeviceSize vertexOffset = 0;
         vkCmdBindVertexBuffers(command, 0, 1, &vertexBuffer, &vertexOffset);
         vkCmdBindIndexBuffer(command, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(command, 36, 1, 0, 0, 0);
+        vkCmdDrawIndexed(command, static_cast<uint32_t>(diagnosticMesh.indices.size()), 1, 0, 0, 0);
         vkCmdEndRenderPass(command);
         result = vkEndCommandBuffer(command);
         if (result != VK_SUCCESS) return fail("ERRO ao finalizar command buffer: " + std::to_string(result));
@@ -1081,10 +1234,10 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     output += "\nResolução: " + std::to_string(extent.width) + " x " + std::to_string(extent.height);
     output += "\nImagens na swapchain: " + std::to_string(imageCount);
     output += "\nPipeline gráfica: ativa";
-    output += "\nGeometria: 2 triângulos em coordenadas 3D";
+    output += "\nGeometria: modelo OBJ externo (" + std::to_string(diagnosticMesh.indices.size() / 3) + " triângulos)";
     output += "\nCâmera: matriz View + Projection (perspectiva)";
     output += "\nParâmetros: FOV aproximado 90°, near 0.1, far 10.0";
-    output += "\nTeste visual: triângulo frontal deve ocultar parte do triângulo traseiro";
+    output += "\nModelo: diagnostic_model.obj carregado e normalizado";
     output += "\nTextura: imagem PPM 16x16 carregada na GPU";
     output += "\nAmostragem: VkImage + VkSampler + Descriptor Set";
     output += "\nProfundidade: depth buffer ativo (teste LESS, escrita habilitada)";

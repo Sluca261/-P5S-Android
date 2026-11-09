@@ -18,6 +18,8 @@
 #include <vulkan/vulkan.h>
 
 static std::atomic<bool> g_stopRendering{false};
+static std::atomic<float> g_leftX{0.0f}, g_leftY{0.0f};
+static std::atomic<float> g_rightX{0.0f}, g_rightY{0.0f};
 
 struct MeshVertex {
     float position[3];
@@ -66,7 +68,7 @@ static const uint16_t cubeIndices[36] = {
     16,17,18, 16,18,19, 20,21,22, 20,22,23
 };
 
-static void buildCameraMatrix(float aspect, float angle, float out[32]) {
+static void buildCameraMatrix(float aspect, float angle, float yawInput, float pitchInput, float moveX, float moveY, float out[32]) {
     const float nearPlane = 0.1f;
     const float farPlane = 10.0f;
     const float f = 1.0f;

@@ -3,6 +3,10 @@ plugins {
 }
 
 android {
+    sourceSets {
+        main.assets.srcDir "$buildDir/generated/shaders"
+    }
+
     namespace 'com.p5s.android'
     compileSdk 35
 

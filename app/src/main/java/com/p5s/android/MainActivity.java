@@ -14,6 +14,12 @@ import android.os.Bundle;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.Surface;
+import android.view.MotionEvent;
+import android.view.KeyEvent;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Color;
+import android.view.View;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.LinearLayout;
@@ -34,6 +40,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final String PREFS = "p5s_launcher";
     private TextView surfaceResult;
     private TextView selectedGameStatus;
+    private TextView inputStatus;
     private SharedPreferences settings;
     private volatile Thread renderThread;
     private volatile boolean surfaceAvailable = false;
@@ -112,6 +119,63 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(surfaceTitle);
         content.addView(surfaceView, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(220)));
+
+        TextView controlsTitle = new TextView(this);
+        controlsTitle.setText("Controles de teste");
+        controlsTitle.setTextSize(18);
+        controlsTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        controlsTitle.setPadding(0, 18, 0, 8);
+        content.addView(controlsTitle);
+
+        TextView controlsInfo = new TextView(this);
+        controlsInfo.setText("Toque nos botões ou arraste nas áreas dos analógicos. Um controle USB/Bluetooth também pode ser testado. Nesta fase, os comandos são exibidos para diagnóstico e ainda não controlam o jogo.");
+        controlsInfo.setTextSize(12);
+        controlsInfo.setPadding(0, 0, 0, 8);
+        content.addView(controlsInfo);
+
+        inputStatus = new TextView(this);
+        inputStatus.setText("Entrada: aguardando comandos");
+        inputStatus.setTextSize(13);
+        inputStatus.setPadding(0, 8, 0, 8);
+        content.addView(inputStatus);
+
+        LinearLayout shoulderRow = new LinearLayout(this);
+        shoulderRow.setGravity(Gravity.CENTER);
+        shoulderRow.setOrientation(LinearLayout.HORIZONTAL);
+        shoulderRow.addView(makeTouchButton("L", "L"));
+        shoulderRow.addView(makeTouchButton("ZL", "ZL"));
+        shoulderRow.addView(makeTouchButton("−", "SELECT"));
+        shoulderRow.addView(makeTouchButton("+", "START"));
+        shoulderRow.addView(makeTouchButton("ZR", "ZR"));
+        shoulderRow.addView(makeTouchButton("R", "R"));
+        content.addView(shoulderRow);
+
+        LinearLayout dpadRow = new LinearLayout(this);
+        dpadRow.setGravity(Gravity.CENTER);
+        dpadRow.setOrientation(LinearLayout.HORIZONTAL);
+        dpadRow.addView(makeTouchButton("↑", "UP"));
+        dpadRow.addView(makeTouchButton("←", "LEFT"));
+        dpadRow.addView(makeTouchButton("↓", "DOWN"));
+        dpadRow.addView(makeTouchButton("→", "RIGHT"));
+        content.addView(dpadRow);
+
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setGravity(Gravity.CENTER);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.addView(makeTouchButton("Y", "Y"));
+        actionRow.addView(makeTouchButton("X", "X"));
+        actionRow.addView(makeTouchButton("B", "B"));
+        actionRow.addView(makeTouchButton("A", "A"));
+        content.addView(actionRow);
+
+        LinearLayout analogRow = new LinearLayout(this);
+        analogRow.setGravity(Gravity.CENTER);
+        analogRow.setOrientation(LinearLayout.HORIZONTAL);
+        analogRow.addView(new InputPadView("ANALÓGICO ESQUERDO"),
+                new LinearLayout.LayoutParams(0, dpToPx(150), 1));
+        analogRow.addView(new InputPadView("CÂMERA"),
+                new LinearLayout.LayoutParams(0, dpToPx(150), 1));
+        content.addView(analogRow);
 
         surfaceResult = new TextView(this);
         surfaceResult.setText("Aguardando criação da superfície Android...");
@@ -201,6 +265,121 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         selectedGameStatus.setText(readable
                 ? "Arquivo selecionado: " + name + "\nAcesso local: disponível."
                 : "Arquivo selecionado: " + name + "\nAcesso local: indisponível. Selecione-o novamente.");
+    }
+
+
+    private Button makeTouchButton(String label, String command) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(12);
+        button.setMinWidth(dpToPx(48));
+        button.setPadding(dpToPx(4), 0, dpToPx(4), 0);
+        button.setOnTouchListener((view, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                reportInput(command + " pressionado");
+                view.setPressed(true);
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP
+                    || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                reportInput(command + " liberado");
+                view.setPressed(false);
+                return true;
+            }
+            return true;
+        });
+        return button;
+    }
+
+    private void reportInput(String message) {
+        if (inputStatus != null) inputStatus.setText("Entrada: " + message);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP) {
+            reportInput("controle físico — " + KeyEvent.keyCodeToString(event.getKeyCode())
+                    + (event.getAction() == KeyEvent.ACTION_DOWN ? " pressionado" : " liberado"));
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean onGenericMotionEvent(MotionEvent event) {
+        if ((event.getSource() & android.view.InputDevice.SOURCE_JOYSTICK)
+                == android.view.InputDevice.SOURCE_JOYSTICK
+                && event.getAction() == MotionEvent.ACTION_MOVE) {
+            reportInput(String.format(Locale.ROOT,
+                    "analógicos físicos — X %.2f / Y %.2f / RX %.2f / RY %.2f",
+                    event.getAxisValue(MotionEvent.AXIS_X),
+                    event.getAxisValue(MotionEvent.AXIS_Y),
+                    event.getAxisValue(MotionEvent.AXIS_Z),
+                    event.getAxisValue(MotionEvent.AXIS_RZ)));
+            return true;
+        }
+        return super.onGenericMotionEvent(event);
+    }
+
+    private class InputPadView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final String label;
+        private float x;
+        private float y;
+        private boolean active;
+
+        InputPadView(String label) {
+            super(MainActivity.this);
+            this.label = label;
+            setFocusable(true);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float cx = getWidth() / 2f;
+            float cy = getHeight() / 2f + dpToPx(8);
+            float radius = Math.min(getWidth(), getHeight()) * 0.34f;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dpToPx(2));
+            paint.setColor(Color.GRAY);
+            canvas.drawCircle(cx, cy, radius, paint);
+            canvas.drawLine(cx - radius, cy, cx + radius, cy, paint);
+            canvas.drawLine(cx, cy - radius, cx, cy + radius, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(active ? Color.rgb(80, 145, 220) : Color.DKGRAY);
+            canvas.drawCircle(cx + x * radius, cy + y * radius, radius * 0.28f, paint);
+            paint.setColor(Color.WHITE);
+            paint.setTextSize(dpToPx(11));
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(label, cx, dpToPx(14), paint);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            float cx = getWidth() / 2f;
+            float cy = getHeight() / 2f + dpToPx(8);
+            float radius = Math.min(getWidth(), getHeight()) * 0.34f;
+            if (event.getAction() == MotionEvent.ACTION_DOWN
+                    || event.getAction() == MotionEvent.ACTION_MOVE) {
+                x = Math.max(-1f, Math.min(1f, (event.getX() - cx) / radius));
+                y = Math.max(-1f, Math.min(1f, (event.getY() - cy) / radius));
+                active = true;
+                reportInput(label + String.format(Locale.ROOT, " X %.2f / Y %.2f", x, y));
+                invalidate();
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP
+                    || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                x = 0f;
+                y = 0f;
+                active = false;
+                reportInput(label + " centralizado");
+                invalidate();
+                return true;
+            }
+            return true;
+        }
     }
 
     private int dpToPx(int dp) {

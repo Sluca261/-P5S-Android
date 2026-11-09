@@ -18,9 +18,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private native String getVulkanInfo();
-    private native String renderVulkanFrame(Surface surface, AssetManager assets);
+    private native String renderVulkanLoop(Surface surface, AssetManager assets);
+    private native void requestStopVulkanRendering();
 
     private TextView surfaceResult;
+    private volatile Thread renderThread;
+    private volatile boolean surfaceAvailable = false;
+    private volatile Surface activeSurface;
+    private int lastSurfaceWidth = -1;
+    private int lastSurfaceHeight = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,7 +44,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 4 — primeiro triângulo pela pipeline Vulkan");
+        subtitle.setText("Etapa 5 — renderização contínua em thread própria");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -86,17 +92,71 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return Math.round(dp * getResources().getDisplayMetrics().density);
     }
 
+    private void startRenderer(Surface surface) {
+        stopRenderer();
+        if (surface == null || !surface.isValid()) {
+            surfaceResult.setText("Aguardando uma superfície Android válida...");
+            return;
+        }
+        activeSurface = surface;
+        surfaceResult.setText("Renderização Vulkan contínua em execução...\nA GPU está apresentando o triângulo em uma thread dedicada.");
+        Thread worker = new Thread(() -> {
+            Thread current = Thread.currentThread();
+            String result = renderVulkanLoop(surface, getAssets());
+            runOnUiThread(() -> {
+                if (renderThread == current) surfaceResult.setText(result);
+            });
+        }, "P5S-Vulkan-Render");
+        renderThread = worker;
+        worker.start();
+    }
+
+    private void stopRenderer() {
+        Thread worker = renderThread;
+        if (worker != null && worker.isAlive()) {
+            requestStopVulkanRendering();
+            try {
+                worker.join(1500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (renderThread == worker && (worker == null || !worker.isAlive())) renderThread = null;
+    }
+
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        surfaceResult.setText(renderVulkanFrame(holder.getSurface(), getAssets()));
+        surfaceAvailable = true;
+        startRenderer(holder.getSurface());
     }
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+        if (width == lastSurfaceWidth && height == lastSurfaceHeight) return;
+        lastSurfaceWidth = width;
+        lastSurfaceHeight = height;
+        if (surfaceAvailable) startRenderer(holder.getSurface());
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
-        surfaceResult.setText("Superfície Android encerrada.");
+        surfaceAvailable = false;
+        activeSurface = null;
+        stopRenderer();
+        surfaceResult.setText("Superfície Android encerrada. Recursos Vulkan liberados.");
+    }
+
+    @Override
+    protected void onPause() {
+        stopRenderer();
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (surfaceAvailable && activeSurface != null && activeSurface.isValid()) {
+            startRenderer(activeSurface);
+        }
     }
 }

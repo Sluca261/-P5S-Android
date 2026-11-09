@@ -16,13 +16,18 @@ A etapa atual amplia o carregador Wavefront OBJ para aceitar bibliotecas MTL sim
 - O teste Vulkan e a renderização 3D não comprovam que o jogo completo possa ser executado no aparelho.
 - Qualquer futura análise ou importação de arquivos deve utilizar cópias obtidas legalmente pelo próprio usuário e respeitar os direitos autorais e as licenças aplicáveis.
 
+## Entrada unificada: toque e controle físico (etapa 21)
+
+Os botões virtuais e os eventos de controles físicos agora alimentam a mesma classe `GameInputState`. Ela mantém um bitmask de botões (A/B/X/Y, L/R, ZL/ZR, START/SELECT e direcional) e quatro eixos normalizados para os analógicos esquerdo e direito. Os eixos aplicam limite de -1 a 1 e uma zona morta central de 0,12; o analógico direito aceita os pares RX/RY e, como alternativa, Z/RZ.
+
+**Limitação atual:** esta camada unifica e apresenta os dados de entrada para diagnóstico, mas ainda não envia comandos a um motor de jogo. A integração com um runtime depende da implementação futura desse runtime e do seu contrato de entrada.
+
 ## Próximos marcos
 
-1. Consolidar uma camada de leitura e validação de recursos.
-2. Implementar carregamento OBJ externo de malhas de diagnóstico. (concluído)
-3. Interpretar materiais MTL básicos e coordenadas UV para malhas de diagnóstico. (concluído)
-4. Implementar texturas independentes por material e avaliar formatos adicionais sem incorporar conteúdo proprietário.
-5. Medir desempenho, memória e compatibilidade no dispositivo Android de teste.
+1. Validar a camada unificada com controles físicos diferentes e múltiplos toques.
+2. Definir uma interface JNI estável para encaminhar estados de entrada ao futuro runtime.
+3. Pesquisar, de forma independente, formatos e requisitos técnicos de importação de recursos.
+4. Medir desempenho, memória e compatibilidade no dispositivo Android de teste.
 
 
 ## Launcher: seleção local de NSP/XCI (etapa inicial)

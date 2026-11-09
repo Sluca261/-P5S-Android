@@ -25,6 +25,7 @@ import android.view.SurfaceView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity implements SurfaceHolder.Callback {
     static {
@@ -45,6 +46,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private TextView selectedGameStatus;
     private TextView inputStatus;
     private SharedPreferences settings;
+    private final ArrayList<Button> touchButtons = new ArrayList<>();
+    private float controlScale = 1.0f;
+    private float controlOpacity = 1.0f;
     private volatile Thread renderThread;
     private volatile boolean surfaceAvailable = false;
     private volatile Surface activeSurface;
@@ -55,6 +59,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         settings = getSharedPreferences(PREFS, MODE_PRIVATE);
+        controlScale = settings.getFloat("control_scale", 1.0f);
+        controlOpacity = settings.getFloat("control_opacity", 1.0f);
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -68,7 +74,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 25 — suporte aos cliques L3 e R3");
+        subtitle.setText("Etapa 26 — personalização de tamanho e opacidade dos controles");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -124,6 +130,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         controlsTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         controlsTitle.setPadding(0, 18, 0, 8);
         content.addView(controlsTitle);
+
+        LinearLayout editorRow = new LinearLayout(this);
+        editorRow.setGravity(Gravity.CENTER);
+        editorRow.setOrientation(LinearLayout.HORIZONTAL);
+        editorRow.addView(makeEditorButton("A−", -0.1f, 0f));
+        editorRow.addView(makeEditorButton("A+", 0.1f, 0f));
+        editorRow.addView(makeEditorButton("Opacidade −", 0f, -0.1f));
+        editorRow.addView(makeEditorButton("Opacidade +", 0f, 0.1f));
+        content.addView(editorRow);
 
         TextView controlsInfo = new TextView(this);
         controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Os analógicos e os botões direcionais e superiores já influenciam o modelo de diagnóstico Vulkan. A e B alteram o sentido da rotação; L e R giram a orientação; o direcional desloca o modelo. A camada também registra eventos distintos de pressionar e soltar, com sequência crescente, incluindo os cliques L3 e R3.");
@@ -285,6 +300,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         button.setText(label);
         button.setTextSize(12);
         button.setMinWidth(dpToPx(48));
+        touchButtons.add(button);
+        applyControlStyle(button);
         button.setPadding(dpToPx(4), 0, dpToPx(4), 0);
         button.setOnTouchListener((view, event) -> {
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -303,6 +320,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             return true;
         });
         return button;
+    }
+
+    private Button makeEditorButton(String label, float scaleDelta, float opacityDelta) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(10);
+        button.setOnClickListener(v -> {
+            controlScale = Math.max(0.7f, Math.min(1.5f, controlScale + scaleDelta));
+            controlOpacity = Math.max(0.3f, Math.min(1.0f, controlOpacity + opacityDelta));
+            settings.edit().putFloat("control_scale", controlScale)
+                    .putFloat("control_opacity", controlOpacity).apply();
+            applyAllControlStyles();
+        });
+        return button;
+    }
+
+    private void applyControlStyle(Button button) {
+        button.setScaleX(controlScale);
+        button.setScaleY(controlScale);
+        button.setAlpha(controlOpacity);
+    }
+
+    private void applyAllControlStyles() {
+        for (Button button : touchButtons) applyControlStyle(button);
     }
 
     private String gamepadCommand(int keyCode) {

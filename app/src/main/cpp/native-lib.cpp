@@ -973,7 +973,8 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         float cameraMatrix[16]{};
-        const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f;\n        buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), rotationAngle, cameraMatrix);
+        const float rotationAngle = static_cast<float>(renderedFrames) * 0.012f;
+        buildCameraMatrix(static_cast<float>(extent.width) / static_cast<float>(extent.height), rotationAngle, cameraMatrix);
         vkCmdPushConstants(command, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
                            sizeof(cameraMatrix), cameraMatrix);
         VkDeviceSize vertexOffset = 0;

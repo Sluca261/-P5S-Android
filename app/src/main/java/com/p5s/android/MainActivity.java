@@ -10,6 +10,7 @@ import android.provider.OpenableColumns;
 import android.widget.Button;
 import android.widget.Toast;
 import java.util.Locale;
+import java.io.InputStream;
 import android.os.Bundle;
 import android.graphics.Typeface;
 import android.view.Gravity;
@@ -306,12 +307,60 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         String mimeType = getContentResolver().getType(uri);
         String sizeLabel = sizeBytes >= 0 ? formatFileSize(sizeBytes) : "não informado";
         String mimeLabel = mimeType == null ? "não informado" : mimeType;
+        String containerStatus = validateContainerHeader(uri, name, sizeBytes);
         selectedGameStatus.setText("Arquivo selecionado: " + name
                 + "\nPermissão de leitura persistida: "
                 + (permissionAvailable ? "disponível" : "não confirmada")
                 + "\nTamanho informado pelo provedor: " + sizeLabel
                 + "\nTipo MIME informado: " + mimeLabel
-                + "\nValidação do contêiner: ainda não realizada.");
+                + "\nValidação básica do cabeçalho: " + containerStatus);
+    }
+
+    // Lê somente os quatro bytes de identificação do formato; não descriptografa,
+    // interpreta conteúdo interno, acessa chaves ou modifica o arquivo.
+    private String validateContainerHeader(Uri uri, String name, long sizeBytes) {
+        String lowerName = name.toLowerCase(Locale.ROOT);
+        boolean isXci = lowerName.endsWith(".xci");
+        long headerOffset = isXci ? 0x100L : 0L;
+        String expected = isXci ? "HEAD" : "PFS0";
+
+        if (!isXci && !lowerName.endsWith(".nsp")) {
+            return "extensão não suportada";
+        }
+        if (sizeBytes >= 0 && sizeBytes < headerOffset + 4L) {
+            return "arquivo pequeno demais para conter o cabeçalho esperado";
+        }
+
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            if (input == null) return "não foi possível abrir o arquivo para leitura local";
+            long remaining = headerOffset;
+            while (remaining > 0) {
+                long skipped = input.skip(remaining);
+                if (skipped <= 0) {
+                    if (input.read() < 0) return "arquivo terminou antes do cabeçalho";
+                    skipped = 1;
+                }
+                remaining -= skipped;
+            }
+
+            byte[] magic = new byte[4];
+            int count = 0;
+            while (count < magic.length) {
+                int read = input.read(magic, count, magic.length - count);
+                if (read < 0) break;
+                count += read;
+            }
+            if (count != 4) return "cabeçalho incompleto";
+
+            String actual = new String(magic, java.nio.charset.StandardCharsets.US_ASCII);
+            if (expected.equals(actual)) {
+                return "assinatura " + expected + " encontrada; cabeçalho compatível";
+            }
+            return "assinatura inesperada (" + actual + "); não reconhecido como "
+                    + (isXci ? "XCI" : "NSP");
+        } catch (Exception e) {
+            return "não foi possível ler o cabeçalho: " + e.getClass().getSimpleName();
+        }
     }
 
     // Consulta somente metadados fornecidos pelo Storage Access Framework.

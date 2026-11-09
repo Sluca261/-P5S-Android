@@ -23,3 +23,10 @@ A etapa atual amplia o carregador Wavefront OBJ para aceitar bibliotecas MTL sim
 3. Interpretar materiais MTL básicos e coordenadas UV para malhas de diagnóstico. (concluído)
 4. Implementar texturas independentes por material e avaliar formatos adicionais sem incorporar conteúdo proprietário.
 5. Medir desempenho, memória e compatibilidade no dispositivo Android de teste.
+
+
+## Launcher: seleção local de NSP/XCI (etapa inicial)
+
+O launcher Android permite selecionar uma cópia local de jogo em formato `.nsp` ou `.xci` pelo seletor de documentos do sistema. Ele guarda a permissão persistente de leitura do URI, registra o nome do arquivo e verifica se o acesso continua disponível ao abrir o aplicativo. O arquivo não é copiado para o armazenamento do app nem enviado pela rede.
+
+**Limitação atual:** esta é somente a primeira camada do launcher. O projeto ainda não interpreta contêineres NSP/XCI, não descriptografa NCA, não importa chaves, não instala conteúdo e não executa o jogo. A mensagem de estado do aplicativo deixa essa limitação explícita. Utilize apenas dumps obtidos legalmente pelo próprio usuário; não compartilhe jogos ou chaves no repositório.

@@ -603,6 +603,7 @@ Java_com_p5s_android_MainActivity_requestStopVulkanRendering(JNIEnv*, jobject) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_p5s_android_MainActivity_updateInputState(JNIEnv*, jobject, jlong buttons,
+        jlong pressed, jlong released, jlong sequence,
         jfloat leftX, jfloat leftY, jfloat rightX, jfloat rightY) {
     auto safeAxis = [](float value) {
         if (!std::isfinite(value)) return 0.0f;

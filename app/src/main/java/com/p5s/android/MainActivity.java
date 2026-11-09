@@ -45,7 +45,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 13 — iluminação 3D dinâmica");
+        subtitle.setText("Etapa 14 — carregamento robusto de assets");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);

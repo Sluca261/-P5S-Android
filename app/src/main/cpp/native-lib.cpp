@@ -2,12 +2,15 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <atomic>
 #include <android/native_window_jni.h>
 #include <android/native_window.h>
 #include <android/asset_manager_jni.h>
 #include <android/asset_manager.h>
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
+
+static std::atomic<bool> g_stopRendering{false};
 
 static bool hasInstanceExtension(const char* name) {
     uint32_t count = 0;
@@ -40,6 +43,11 @@ static bool loadShader(AAssetManager* manager, const char* name, std::vector<uin
     const int bytes = AAsset_read(asset, code.data(), static_cast<size_t>(length));
     AAsset_close(asset);
     return bytes == length && !code.empty() && code[0] == 0x07230203;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_p5s_android_MainActivity_requestStopVulkanRendering(JNIEnv*, jobject) {
+    g_stopRendering.store(true);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -79,7 +87,8 @@ Java_com_p5s_android_MainActivity_getVulkanInfo(JNIEnv* env, jobject) {
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_p5s_android_MainActivity_renderVulkanFrame(JNIEnv* env, jobject, jobject javaSurface, jobject javaAssets) {
+Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject javaSurface, jobject javaAssets) {
+    g_stopRendering.store(false);
     if (!javaSurface || !javaAssets) return env->NewStringUTF("ERRO: superfície ou assets Android inválidos.");
     if (!hasInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME) ||
         !hasInstanceExtension(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME)) {
@@ -110,6 +119,7 @@ Java_com_p5s_android_MainActivity_renderVulkanFrame(JNIEnv* env, jobject, jobjec
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     VkSemaphore imageAvailable = VK_NULL_HANDLE, renderFinished = VK_NULL_HANDLE;
+    VkFence frameFence = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
@@ -130,6 +140,7 @@ Java_com_p5s_android_MainActivity_renderVulkanFrame(JNIEnv* env, jobject, jobjec
             for (VkImageView view : imageViews) if (view) vkDestroyImageView(device, view, nullptr);
             if (imageAvailable) vkDestroySemaphore(device, imageAvailable, nullptr);
             if (renderFinished) vkDestroySemaphore(device, renderFinished, nullptr);
+            if (frameFence) vkDestroyFence(device, frameFence, nullptr);
             if (commandPool) vkDestroyCommandPool(device, commandPool, nullptr);
             if (swapchain) vkDestroySwapchainKHR(device, swapchain, nullptr);
             vkDestroyDevice(device, nullptr);
@@ -416,10 +427,6 @@ Java_com_p5s_android_MainActivity_renderVulkanFrame(JNIEnv* env, jobject, jobjec
     result = vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinished);
     if (result != VK_SUCCESS) return fail("ERRO ao criar semáforo: " + std::to_string(result));
 
-    uint32_t imageIndex = 0;
-    result = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, imageAvailable, VK_NULL_HANDLE, &imageIndex);
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-        return fail("ERRO ao adquirir imagem: " + std::to_string(result));
     VkCommandBufferAllocateInfo commandAlloc{};
     commandAlloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     commandAlloc.commandPool = commandPool;
@@ -428,58 +435,105 @@ Java_com_p5s_android_MainActivity_renderVulkanFrame(JNIEnv* env, jobject, jobjec
     VkCommandBuffer command = VK_NULL_HANDLE;
     result = vkAllocateCommandBuffers(device, &commandAlloc, &command);
     if (result != VK_SUCCESS) return fail("ERRO ao alocar command buffer: " + std::to_string(result));
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    result = vkBeginCommandBuffer(command, &begin);
-    if (result != VK_SUCCESS) return fail("ERRO ao iniciar command buffer: " + std::to_string(result));
 
-    VkClearValue clear{};
-    clear.color = {{ 0.055f, 0.025f, 0.10f, 1.0f }};
-    VkRenderPassBeginInfo passBegin{};
-    passBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    passBegin.renderPass = renderPass;
-    passBegin.framebuffer = framebuffers[imageIndex];
-    passBegin.renderArea.extent = extent;
-    passBegin.clearValueCount = 1;
-    passBegin.pClearValues = &clear;
-    vkCmdBeginRenderPass(command, &passBegin, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    vkCmdDraw(command, 3, 1, 0, 0);
-    vkCmdEndRenderPass(command);
-    result = vkEndCommandBuffer(command);
-    if (result != VK_SUCCESS) return fail("ERRO ao finalizar command buffer: " + std::to_string(result));
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    result = vkCreateFence(device, &fenceInfo, nullptr, &frameFence);
+    if (result != VK_SUCCESS) return fail("ERRO ao criar fence de renderização: " + std::to_string(result));
 
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.waitSemaphoreCount = 1;
-    submit.pWaitSemaphores = &imageAvailable;
-    submit.pWaitDstStageMask = &waitStage;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &command;
-    submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &renderFinished;
-    result = vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
-    if (result != VK_SUCCESS) return fail("ERRO ao enviar desenho à GPU: " + std::to_string(result));
-    VkPresentInfoKHR present{};
-    present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present.waitSemaphoreCount = 1;
-    present.pWaitSemaphores = &renderFinished;
-    present.swapchainCount = 1;
-    present.pSwapchains = &swapchain;
-    present.pImageIndices = &imageIndex;
-    result = vkQueuePresentKHR(queue, &present);
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-        return fail("ERRO ao apresentar triângulo: " + std::to_string(result));
+    uint64_t renderedFrames = 0;
+    bool interrupted = false;
+    while (!g_stopRendering.load()) {
+        result = vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
+        if (result != VK_SUCCESS) return fail("ERRO ao aguardar frame anterior: " + std::to_string(result));
 
-    std::string output = "TRIÂNGULO VULKAN RENDERIZADO COM SUCESSO!\n";
+        uint32_t imageIndex = 0;
+        result = vkAcquireNextImageKHR(device, swapchain, 100000000ULL,
+                                       imageAvailable, VK_NULL_HANDLE, &imageIndex);
+        if (result == VK_TIMEOUT || result == VK_NOT_READY) continue;
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            interrupted = true;
+            break;
+        }
+        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+            return fail("ERRO ao adquirir imagem: " + std::to_string(result));
+
+        result = vkResetFences(device, 1, &frameFence);
+        if (result != VK_SUCCESS) return fail("ERRO ao reiniciar fence: " + std::to_string(result));
+        result = vkResetCommandBuffer(command, 0);
+        if (result != VK_SUCCESS) return fail("ERRO ao reiniciar command buffer: " + std::to_string(result));
+
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        result = vkBeginCommandBuffer(command, &begin);
+        if (result != VK_SUCCESS) return fail("ERRO ao iniciar command buffer: " + std::to_string(result));
+
+        VkClearValue clear{};
+        clear.color = {{ 0.055f, 0.025f, 0.10f, 1.0f }};
+        VkRenderPassBeginInfo passBegin{};
+        passBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        passBegin.renderPass = renderPass;
+        passBegin.framebuffer = framebuffers[imageIndex];
+        passBegin.renderArea.extent = extent;
+        passBegin.clearValueCount = 1;
+        passBegin.pClearValues = &clear;
+        vkCmdBeginRenderPass(command, &passBegin, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdDraw(command, 3, 1, 0, 0);
+        vkCmdEndRenderPass(command);
+        result = vkEndCommandBuffer(command);
+        if (result != VK_SUCCESS) return fail("ERRO ao finalizar command buffer: " + std::to_string(result));
+
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.waitSemaphoreCount = 1;
+        submit.pWaitSemaphores = &imageAvailable;
+        submit.pWaitDstStageMask = &waitStage;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &command;
+        submit.signalSemaphoreCount = 1;
+        submit.pSignalSemaphores = &renderFinished;
+        result = vkQueueSubmit(queue, 1, &submit, frameFence);
+        if (result != VK_SUCCESS) return fail("ERRO ao enviar desenho à GPU: " + std::to_string(result));
+
+        VkPresentInfoKHR present{};
+        present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        present.waitSemaphoreCount = 1;
+        present.pWaitSemaphores = &renderFinished;
+        present.swapchainCount = 1;
+        present.pSwapchains = &swapchain;
+        present.pImageIndices = &imageIndex;
+        VkResult presentResult = vkQueuePresentKHR(queue, &present);
+        if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR &&
+            presentResult != VK_ERROR_OUT_OF_DATE_KHR)
+            return fail("ERRO ao apresentar triângulo: " + std::to_string(presentResult));
+        renderedFrames++;
+
+        // Sincronização conservadora para permitir reutilizar o semáforo com segurança.
+        result = vkQueueWaitIdle(queue);
+        if (result != VK_SUCCESS) return fail("ERRO ao sincronizar fila gráfica: " + std::to_string(result));
+        if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
+            interrupted = true;
+            break;
+        }
+    }
+
+    if (device != VK_NULL_HANDLE && frameFence) {
+        vkDestroyFence(device, frameFence, nullptr);
+        frameFence = VK_NULL_HANDLE;
+    }
+    std::string output = "LOOP DE RENDERIZAÇÃO VULKAN ENCERRADO!\n";
     output += "GPU: " + std::string(properties.deviceName);
     output += "\nResolução: " + std::to_string(extent.width) + " x " + std::to_string(extent.height);
     output += "\nImagens na swapchain: " + std::to_string(imageCount);
     output += "\nPipeline gráfica: ativa";
     output += "\nGeometria: 3 vértices via gl_VertexIndex";
     output += "\nShader de fragmento: rosa";
+    output += "\nFrames apresentados: " + std::to_string(renderedFrames);
+    output += interrupted ? "\nMotivo: superfície redimensionada ou recriada." : "\nMotivo: ciclo interrompido pelo Android.";
     cleanup();
     return env->NewStringUTF(output.c_str());
 }

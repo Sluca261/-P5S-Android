@@ -49,6 +49,21 @@ static bool loadShader(AAssetManager* manager, const char* name, std::vector<uin
 }
 
 
+static VkFormat findDepthFormat(VkPhysicalDevice physical) {
+    const VkFormat candidates[] = {
+        VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D24_UNORM_S8_UINT,
+        VK_FORMAT_D16_UNORM
+    };
+    for (VkFormat format : candidates) {
+        VkFormatProperties props{};
+        vkGetPhysicalDeviceFormatProperties(physical, format, &props);
+        if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+            return format;
+    }
+    return VK_FORMAT_UNDEFINED;
+}
+
 static uint32_t findMemoryType(VkPhysicalDevice physical, uint32_t bits, VkMemoryPropertyFlags flags) {
     VkPhysicalDeviceMemoryProperties props{};
     vkGetPhysicalDeviceMemoryProperties(physical, &props);
@@ -323,6 +338,10 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     VkSemaphore imageAvailable = VK_NULL_HANDLE, renderFinished = VK_NULL_HANDLE;
     VkFence frameFence = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkImage depthImage = VK_NULL_HANDLE;
+    VkDeviceMemory depthMemory = VK_NULL_HANDLE;
+    VkImageView depthView = VK_NULL_HANDLE;
+    VkFormat depthFormat = VK_FORMAT_UNDEFINED;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
@@ -343,6 +362,9 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
             for (VkFramebuffer fb : framebuffers) if (fb) vkDestroyFramebuffer(device, fb, nullptr);
             if (pipeline) vkDestroyPipeline(device, pipeline, nullptr);
             if (pipelineLayout) vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+            if (depthView) vkDestroyImageView(device, depthView, nullptr);
+            if (depthImage) vkDestroyImage(device, depthImage, nullptr);
+            if (depthMemory) vkFreeMemory(device, depthMemory, nullptr);
             if (descriptorPool) vkDestroyDescriptorPool(device, descriptorPool, nullptr);
             if (textureSampler) vkDestroySampler(device, textureSampler, nullptr);
             if (textureView) vkDestroyImageView(device, textureView, nullptr);
@@ -507,6 +529,51 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         if (result != VK_SUCCESS) return fail("ERRO ao criar image view: " + std::to_string(result));
     }
 
+    depthFormat = findDepthFormat(physical);
+    if (depthFormat == VK_FORMAT_UNDEFINED)
+        return fail("ERRO: GPU sem formato compatível com depth buffer.");
+
+    VkImageCreateInfo depthImageInfo{};
+    depthImageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    depthImageInfo.imageType = VK_IMAGE_TYPE_2D;
+    depthImageInfo.format = depthFormat;
+    depthImageInfo.extent = {extent.width, extent.height, 1};
+    depthImageInfo.mipLevels = 1;
+    depthImageInfo.arrayLayers = 1;
+    depthImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthImageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    depthImageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    depthImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    depthImageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    result = vkCreateImage(device, &depthImageInfo, nullptr, &depthImage);
+    if (result != VK_SUCCESS) return fail("ERRO ao criar imagem de profundidade: " + std::to_string(result));
+
+    VkMemoryRequirements depthRequirements{};
+    vkGetImageMemoryRequirements(device, depthImage, &depthRequirements);
+    const uint32_t depthMemoryType = findMemoryType(physical, depthRequirements.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (depthMemoryType == UINT32_MAX)
+        return fail("ERRO: memória para depth buffer indisponível.");
+    VkMemoryAllocateInfo depthAllocation{};
+    depthAllocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    depthAllocation.allocationSize = depthRequirements.size;
+    depthAllocation.memoryTypeIndex = depthMemoryType;
+    result = vkAllocateMemory(device, &depthAllocation, nullptr, &depthMemory);
+    if (result != VK_SUCCESS) return fail("ERRO ao alocar memória de profundidade: " + std::to_string(result));
+    result = vkBindImageMemory(device, depthImage, depthMemory, 0);
+    if (result != VK_SUCCESS) return fail("ERRO ao vincular memória de profundidade: " + std::to_string(result));
+
+    VkImageViewCreateInfo depthViewInfo{};
+    depthViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    depthViewInfo.image = depthImage;
+    depthViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    depthViewInfo.format = depthFormat;
+    depthViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    depthViewInfo.subresourceRange.levelCount = 1;
+    depthViewInfo.subresourceRange.layerCount = 1;
+    result = vkCreateImageView(device, &depthViewInfo, nullptr, &depthView);
+    if (result != VK_SUCCESS) return fail("ERRO ao criar visualização do depth buffer: " + std::to_string(result));
+
     VkAttachmentDescription colorAttachment{};
     colorAttachment.format = format.format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -516,13 +583,27 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format = depthFormat;
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     VkAttachmentReference colorReference{};
     colorReference.attachment = 0;
     colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkAttachmentReference depthReference{};
+    depthReference.attachment = 1;
+    depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorReference;
+    subpass.pDepthStencilAttachment = &depthReference;
     VkSubpassDependency dependency{};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
@@ -531,8 +612,9 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     VkRenderPassCreateInfo renderInfo{};
     renderInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderInfo.attachmentCount = 1;
-    renderInfo.pAttachments = &colorAttachment;
+    VkAttachmentDescription attachments[] = {colorAttachment, depthAttachment};
+    renderInfo.attachmentCount = 2;
+    renderInfo.pAttachments = attachments;
     renderInfo.subpassCount = 1;
     renderInfo.pSubpasses = &subpass;
     renderInfo.dependencyCount = 1;
@@ -544,8 +626,9 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         VkFramebufferCreateInfo fbInfo{};
         fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fbInfo.renderPass = renderPass;
-        fbInfo.attachmentCount = 1;
-        fbInfo.pAttachments = &imageViews[i];
+        VkImageView attachments[] = {imageViews[i], depthView};
+        fbInfo.attachmentCount = 2;
+        fbInfo.pAttachments = attachments;
         fbInfo.width = extent.width;
         fbInfo.height = extent.height;
         fbInfo.layers = 1;
@@ -608,6 +691,13 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     blend.attachmentCount = 1;
     blend.pAttachments = &blendAttachment;
+    VkPipelineDepthStencilStateCreateInfo depthState{};
+    depthState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthState.depthTestEnable = VK_TRUE;
+    depthState.depthWriteEnable = VK_TRUE;
+    depthState.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthState.depthBoundsTestEnable = VK_FALSE;
+    depthState.stencilTestEnable = VK_FALSE;
     VkDescriptorSetLayoutBinding textureBinding{};
     textureBinding.binding = 0;
     textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -636,6 +726,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     pipelineInfo.pRasterizationState = &raster;
     pipelineInfo.pMultisampleState = &multisample;
     pipelineInfo.pColorBlendState = &blend;
+    pipelineInfo.pDepthStencilState = &depthState;
     pipelineInfo.layout = pipelineLayout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
@@ -729,15 +820,16 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
         result = vkBeginCommandBuffer(command, &begin);
         if (result != VK_SUCCESS) return fail("ERRO ao iniciar command buffer: " + std::to_string(result));
 
-        VkClearValue clear{};
-        clear.color = {{ 0.055f, 0.025f, 0.10f, 1.0f }};
+        VkClearValue clearValues[2]{};
+        clearValues[0].color = {{ 0.055f, 0.025f, 0.10f, 1.0f }};
+        clearValues[1].depthStencil = {1.0f, 0};
         VkRenderPassBeginInfo passBegin{};
         passBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         passBegin.renderPass = renderPass;
         passBegin.framebuffer = framebuffers[imageIndex];
         passBegin.renderArea.extent = extent;
-        passBegin.clearValueCount = 1;
-        passBegin.pClearValues = &clear;
+        passBegin.clearValueCount = 2;
+        passBegin.pClearValues = clearValues;
         vkCmdBeginRenderPass(command, &passBegin, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
@@ -793,6 +885,8 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     output += "\nGeometria: 3 vértices via gl_VertexIndex";
     output += "\nTextura: imagem PPM 16x16 carregada na GPU";
     output += "\nAmostragem: VkImage + VkSampler + Descriptor Set";
+    output += "\nProfundidade: depth buffer ativo (teste LESS, escrita habilitada)";
+    output += "\nFormato de profundidade: " + std::to_string(static_cast<int>(depthFormat));
     output += "\nFrames apresentados: " + std::to_string(renderedFrames);
     output += interrupted ? "\nMotivo: superfície redimensionada ou recriada." : "\nMotivo: ciclo interrompido pelo Android.";
     cleanup();

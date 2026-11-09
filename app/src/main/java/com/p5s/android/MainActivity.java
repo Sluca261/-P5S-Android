@@ -45,7 +45,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 16 — materiais e coordenadas UV");
+        subtitle.setText("Etapa 17 — texturas por material (atlas)");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -79,7 +79,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(surfaceResult);
 
         TextView notice = new TextView(this);
-        notice.setText("Teste experimental de renderização Vulkan. O cristal 3D é carregado de OBJ com coordenadas UV e materiais MTL (cores difusas); ainda não é o jogo Persona 5 Strikers.");
+        notice.setText("Teste experimental de renderização Vulkan. O cristal 3D é carregado de OBJ com coordenadas UV, materiais MTL e texturas difusas independentes organizadas em atlas; ainda não é o jogo Persona 5 Strikers.");
         notice.setTextSize(12);
         notice.setPadding(0, 16, 0, 0);
         content.addView(notice);

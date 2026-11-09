@@ -68,7 +68,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         title.setGravity(Gravity.CENTER);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Etapa 22 — entrada conectada à renderização Vulkan");
+        subtitle.setText("Etapa 23 — botões interpretados no renderizador nativo");
         subtitle.setTextSize(16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
@@ -126,7 +126,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(controlsTitle);
 
         TextView controlsInfo = new TextView(this);
-        controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Os analógicos já influenciam a transformação do modelo de diagnóstico Vulkan; os botões permanecem registrados para futura integração ao runtime.");
+        controlsInfo.setText("Toque ou controle físico alimentam o mesmo estado de entrada: botões, direções e quatro eixos normalizados. Os analógicos e os botões direcionais e superiores já influenciam o modelo de diagnóstico Vulkan. A e B alteram o sentido da rotação; L e R giram a orientação; o direcional desloca o modelo.");
         controlsInfo.setTextSize(12);
         controlsInfo.setPadding(0, 0, 0, 8);
         content.addView(controlsInfo);
@@ -319,7 +319,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void reportInput(String message) {
-        if (inputStatus != null) inputStatus.setText("Entrada unificada: " + message);
+        updateInputState(gameInput.getButtonMask(), gameInput.getLeftX(), gameInput.getLeftY(),
+                gameInput.getRightX(), gameInput.getRightY());
+        if (inputStatus != null) inputStatus.setText("Entrada nativa: " + message);
     }
 
     @Override

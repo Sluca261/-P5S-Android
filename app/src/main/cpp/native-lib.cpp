@@ -203,8 +203,10 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
     std::vector<std::array<float, 3>> positions;
     std::vector<std::array<float, 2>> texcoords;
     std::vector<std::array<float, 3>> normals;
-    std::unordered_map<std::string, std::array<float, 3>> materials;
+    struct MaterialData { std::array<float, 3> diffuse{1.0f, 1.0f, 1.0f}; int atlasSlot = 0; };
+    std::unordered_map<std::string, MaterialData> materials;
     std::array<float, 3> currentTint = {1.0f, 1.0f, 1.0f};
+    int currentAtlasSlot = 0;
     mesh.vertices.clear();
     mesh.indices.clear();
 
@@ -229,11 +231,20 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
                 materialRow >> materialKind;
                 if (materialKind == "newmtl") {
                     materialRow >> activeMaterial;
+                    if (!activeMaterial.empty()) materials.emplace(activeMaterial, MaterialData{});
                 } else if (materialKind == "Kd" && !activeMaterial.empty()) {
                     std::array<float, 3> diffuse{};
                     if (!(materialRow >> diffuse[0] >> diffuse[1] >> diffuse[2])) return false;
                     for (float& channel : diffuse) channel = std::max(0.0f, std::min(1.0f, channel));
-                    materials[activeMaterial] = diffuse;
+                    materials[activeMaterial].diffuse = diffuse;
+                } else if (materialKind == "map_Kd" && !activeMaterial.empty()) {
+                    std::string textureFile;
+                    if (!(materialRow >> textureFile) || textureFile.find('/') != std::string::npos ||
+                        textureFile.find("..") != std::string::npos) return false;
+                    // O atlas de diagnóstico reserva uma metade para cada textura independente.
+                    if (textureFile == "ruby_texture.ppm") materials[activeMaterial].atlasSlot = 0;
+                    else if (textureFile == "azure_texture.ppm") materials[activeMaterial].atlasSlot = 1;
+                    else return false;
                 }
             }
         } else if (kind == "usemtl") {
@@ -241,7 +252,8 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
             if (!(row >> materialName)) return false;
             const auto found = materials.find(materialName);
             if (found == materials.end()) return false;
-            currentTint = found->second;
+            currentTint = found->second.diffuse;
+            currentAtlasSlot = found->second.atlasSlot;
         } else if (kind == "v") {
             std::array<float, 3> value{};
             if (!(row >> value[0] >> value[1] >> value[2])) return false;
@@ -303,7 +315,8 @@ static bool loadObjMesh(AAssetManager* assets, const char* assetName, ObjMesh& m
                     vertex.position[0] = p[0];
                     vertex.position[1] = p[1];
                     vertex.position[2] = p[2];
-                    vertex.uv[0] = corner.uv >= 0 ? texcoords[corner.uv][0] : 0.0f;
+                    const float sourceU = corner.uv >= 0 ? texcoords[corner.uv][0] : 0.0f;
+                    vertex.uv[0] = sourceU * 0.5f + static_cast<float>(currentAtlasSlot) * 0.5f;
                     vertex.uv[1] = corner.uv >= 0 ? texcoords[corner.uv][1] : 0.0f;
                     vertex.tint[0] = currentTint[0];
                     vertex.tint[1] = currentTint[1];

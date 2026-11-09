@@ -49,6 +49,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private final ArrayList<Button> touchButtons = new ArrayList<>();
     private float controlScale = 1.0f;
     private float controlOpacity = 1.0f;
+    private boolean controlEditMode = false;
     private volatile Thread renderThread;
     private volatile boolean surfaceAvailable = false;
     private volatile Surface activeSurface;
@@ -138,6 +139,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         editorRow.addView(makeEditorButton("A+", 0.1f, 0f));
         editorRow.addView(makeEditorButton("Opacidade −", 0f, -0.1f));
         editorRow.addView(makeEditorButton("Opacidade +", 0f, 0.1f));
+        Button moveModeButton = new Button(this);
+        moveModeButton.setText("Mover controles");
+        moveModeButton.setTextSize(10);
+        moveModeButton.setOnClickListener(v -> {
+            controlEditMode = !controlEditMode;
+            moveModeButton.setText(controlEditMode ? "Concluir posição" : "Mover controles");
+            Toast.makeText(this, controlEditMode ? "Arraste os botões para reposicioná-los." : "Posições salvas.", Toast.LENGTH_SHORT).show();
+        });
+        editorRow.addView(moveModeButton);
         content.addView(editorRow);
 
         TextView controlsInfo = new TextView(this);
@@ -302,8 +312,34 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         button.setMinWidth(dpToPx(48));
         touchButtons.add(button);
         applyControlStyle(button);
+        String positionKey = "control_position_" + command;
+        button.setTranslationX(settings.getFloat(positionKey + "_x", 0f));
+        button.setTranslationY(settings.getFloat(positionKey + "_y", 0f));
         button.setPadding(dpToPx(4), 0, dpToPx(4), 0);
+        final float[] dragStart = new float[2];
+        final float[] initialTranslation = new float[2];
         button.setOnTouchListener((view, event) -> {
+            if (controlEditMode) {
+                if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                    dragStart[0] = event.getRawX();
+                    dragStart[1] = event.getRawY();
+                    initialTranslation[0] = view.getTranslationX();
+                    initialTranslation[1] = view.getTranslationY();
+                    return true;
+                }
+                if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                    view.setTranslationX(initialTranslation[0] + event.getRawX() - dragStart[0]);
+                    view.setTranslationY(initialTranslation[1] + event.getRawY() - dragStart[1]);
+                    return true;
+                }
+                if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                    String key = "control_position_" + command;
+                    settings.edit().putFloat(key + "_x", view.getTranslationX())
+                            .putFloat(key + "_y", view.getTranslationY()).apply();
+                    return true;
+                }
+                return true;
+            }
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
                 gameInput.setButton(command, true);
                 reportInput("toque — " + gameInput.describe());

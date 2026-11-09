@@ -41,3 +41,8 @@ Os botões já atravessam a ponte e ficam disponíveis no estado nativo para a f
 O launcher Android permite selecionar uma cópia local de jogo em formato `.nsp` ou `.xci` pelo seletor de documentos do sistema. Ele guarda a permissão persistente de leitura do URI, registra o nome do arquivo e verifica se o acesso continua disponível ao abrir o aplicativo. O arquivo não é copiado para o armazenamento do app nem enviado pela rede.
 
 **Limitação atual:** esta é somente a primeira camada do launcher. O projeto ainda não interpreta contêineres NSP/XCI, não descriptografa NCA, não importa chaves, não instala conteúdo e não executa o jogo. A mensagem de estado do aplicativo deixa essa limitação explícita. Utilize apenas dumps obtidos legalmente pelo próprio usuário; não compartilhe jogos ou chaves no repositório.
+
+
+## Interpretação nativa dos botões (etapa 23)
+
+A atividade Java encaminha o estado completo de entrada à função JNI `updateInputState`, que valida os quatro eixos e armazena o bitmask de botões em variáveis atômicas. No renderizador de diagnóstico, A e B alteram o sentido da rotação automática, L e R acrescentam rotação horizontal e o direcional desloca o modelo. Os analógicos continuam controlando deslocamento e orientação. Isso valida o caminho de entrada até a camada nativa/Vulkan; ainda não representa ações de Persona 5 Strikers nem integração com um runtime de jogo.

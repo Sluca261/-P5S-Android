@@ -34,7 +34,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private native String getVulkanInfo();
     private native String renderVulkanLoop(Surface surface, AssetManager assets);
     private native void prepareVulkanRendering();
-    private native void requestStopVulkanRendering();\n    private native void updateInputState(long buttons, float leftX, float leftY, float rightX, float rightY);
+    private native void requestStopVulkanRendering();
+    private native void updateInputState(long buttons, float leftX, float leftY, float rightX, float rightY);
 
     private final GameInputState gameInput = new GameInputState();
 

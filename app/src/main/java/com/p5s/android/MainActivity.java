@@ -2,6 +2,14 @@ package com.p5s.android;
 
 import android.app.Activity;
 import android.content.res.AssetManager;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
+import android.widget.Button;
+import android.widget.Toast;
+import java.util.Locale;
 import android.os.Bundle;
 import android.graphics.Typeface;
 import android.view.Gravity;
@@ -22,7 +30,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private native void prepareVulkanRendering();
     private native void requestStopVulkanRendering();
 
+    private static final int PICK_GAME_FILE = 41;
+    private static final String PREFS = "p5s_launcher";
     private TextView surfaceResult;
+    private TextView selectedGameStatus;
+    private SharedPreferences settings;
     private volatile Thread renderThread;
     private volatile boolean surfaceAvailable = false;
     private volatile Surface activeSurface;
@@ -32,6 +44,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        settings = getSharedPreferences(PREFS, MODE_PRIVATE);
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -50,6 +63,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, 12, 0, 20);
 
+        TextView launcherTitle = new TextView(this);
+        launcherTitle.setText("Preparação do jogo");
+        launcherTitle.setTextSize(18);
+        launcherTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        launcherTitle.setPadding(0, 18, 0, 8);
+
+        TextView launcherInfo = new TextView(this);
+        launcherInfo.setText("Selecione uma cópia local de Persona 5 Strikers em formato NSP ou XCI. O aplicativo guardará a permissão de leitura do arquivo, sem copiá-lo nem enviá-lo pela internet.");
+        launcherInfo.setTextSize(13);
+        launcherInfo.setPadding(0, 4, 0, 10);
+
+        Button selectGame = new Button(this);
+        selectGame.setText("Selecionar arquivo NSP / XCI");
+        selectGame.setOnClickListener(v -> openGamePicker());
+
+        selectedGameStatus = new TextView(this);
+        selectedGameStatus.setTextSize(13);
+        selectedGameStatus.setPadding(0, 8, 0, 12);
+
+        TextView preparationStatus = new TextView(this);
+        preparationStatus.setText("Estado: importador NSP/XCI e runtime ainda não implementados. A seleção não instala, descriptografa nem executa o jogo.");
+        preparationStatus.setTextSize(12);
+        preparationStatus.setPadding(0, 4, 0, 14);
+
         TextView result = new TextView(this);
         result.setText(getVulkanInfo());
         result.setTextSize(14);
@@ -66,6 +103,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         surfaceView.getHolder().addCallback(this);
         content.addView(title);
         content.addView(subtitle);
+        content.addView(launcherTitle);
+        content.addView(launcherInfo);
+        content.addView(selectGame);
+        content.addView(selectedGameStatus);
+        content.addView(preparationStatus);
         content.addView(result);
         content.addView(surfaceTitle);
         content.addView(surfaceView, new LinearLayout.LayoutParams(
@@ -87,6 +129,78 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
         setContentView(scroll);
+        refreshSelectedGame();
+    }
+
+    private void openGamePicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, PICK_GAME_FILE);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_GAME_FILE || resultCode != RESULT_OK
+                || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        String name = queryDisplayName(uri);
+        String lowerName = name.toLowerCase(Locale.ROOT);
+        if (!lowerName.endsWith(".nsp") && !lowerName.endsWith(".xci")) {
+            Toast.makeText(this, "Formato não reconhecido. Escolha um arquivo .NSP ou .XCI.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            getContentResolver().takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            settings.edit().putString("game_uri", uri.toString())
+                    .putString("game_name", name).apply();
+            refreshSelectedGame();
+            Toast.makeText(this, "Arquivo referenciado com sucesso.", Toast.LENGTH_SHORT).show();
+        } catch (SecurityException e) {
+            Toast.makeText(this, "O Android não permitiu manter o acesso ao arquivo. Selecione-o novamente.",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String queryDisplayName(Uri uri) {
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri,
+                    new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) return cursor.getString(index);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        String segment = uri.getLastPathSegment();
+        return segment == null ? "arquivo selecionado" : segment;
+    }
+
+    private void refreshSelectedGame() {
+        if (selectedGameStatus == null) return;
+        String name = settings.getString("game_name", null);
+        String uriText = settings.getString("game_uri", null);
+        if (name == null || uriText == null) {
+            selectedGameStatus.setText("Nenhum arquivo de jogo selecionado.");
+            return;
+        }
+        boolean readable = false;
+        try (java.io.InputStream stream =
+                     getContentResolver().openInputStream(Uri.parse(uriText))) {
+            readable = stream != null;
+        } catch (Exception ignored) {
+        }
+        selectedGameStatus.setText(readable
+                ? "Arquivo selecionado: " + name + "\nAcesso local: disponível."
+                : "Arquivo selecionado: " + name + "\nAcesso local: indisponível. Selecione-o novamente.");
     }
 
     private int dpToPx(int dp) {

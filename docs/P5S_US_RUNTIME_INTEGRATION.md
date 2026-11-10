@@ -23,7 +23,7 @@ The Android ARM64 runtime integration is now connected to the APK build:
 4. The launcher passes the locally selected NSP/XCI file descriptor and private `prod.keys` path to the NativeActivity runtime. The runtime's game-image path opens the container in place and checks the base Title ID against the P5S adapter.
 5. The standalone NativeActivity export wrapper and both native libraries are checked in the APK before artifact publication.
 
-The CI run [42765423050](https://github.com/Sluca261/-P5S-Android/actions/runs/42765423050) completed successfully. Its APK artifact passed static checks for ARM64 ELF architecture, the NativeActivity entry point, and the shader translator export.
+The CI run [42769913484](https://github.com/Sluca261/-P5S-Android/actions/runs/42769913484) completed successfully on commit `b58351051bd3957dec93beb13d65e68f96f79626`. It rebuilt the shared ARM64 runtime, the NativeAOT shader translator and the APK; the APK passed static checks for ARM64 ELF architecture, the NativeActivity entry point, and the shader translator and launcher JNI exports. The Vulkan-Headers dependency is fetched by its resolved commit `e3b1eec08173d6b825cd3ac88c885a63b621504a`, avoiding the annotated-tag checkout warning.
 
 **This proves compilation, packaging and static symbol validation only. It does not prove that P5S boots or is playable.** No real P5S NSP/XCI has been used in CI, and the APK has not yet been validated through the game's boot sequence on the target phone.
 

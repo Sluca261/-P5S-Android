@@ -79,6 +79,11 @@ bool write_whole(const std::string& path, const void* data, size_t size) {
 // it consumes the Maxwell code/control block passed through NVN, not P5R-specific CPK data.
 bool translate_shader_on_demand(const std::string& hash, const uint8_t* code, uint32_t code_size,
                                 const uint8_t* control, std::string& spirv, std::string& resources) {
+    // NVN may request shaders on multiple rendering threads. The harness uses
+    // fixed input/output paths and process-global batch state, so serialize calls.
+    static std::mutex translation_mutex;
+    const std::lock_guard<std::mutex> translation_lock(translation_mutex);
+
     using HarnessMain = int (*)(int, const char**);
     static void* library = dlopen("libspirvharness.so", RTLD_NOW);
     static HarnessMain run = library

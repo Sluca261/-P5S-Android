@@ -1351,17 +1351,31 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
 
 
 #include <cstdlib>
-extern "C" JNIEXPORT void JNICALL
+#include <fcntl.h>
+#include <unistd.h>
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_p5s_android_MainActivity_configureRuntime(JNIEnv* env, jobject,
                                                     jint gameFd, jstring gameName,
                                                     jstring keysPath) {
-    const char* name = env->GetStringUTFChars(gameName, nullptr);
-    const char* keys = env->GetStringUTFChars(keysPath, nullptr);
-    if (name && keys && gameFd >= 0) {
-        setenv("NX_GAME_FD", std::to_string(gameFd).c_str(), 1);
-        setenv("NX_GAME_NAME", name, 1);
-        setenv("NX_KEYS", keys, 1);
+    const char* name = gameName ? env->GetStringUTFChars(gameName, nullptr) : nullptr;
+    const char* keys = keysPath ? env->GetStringUTFChars(keysPath, nullptr) : nullptr;
+    bool valid = gameFd >= 0 && name && *name && keys && *keys &&
+                 fcntl(gameFd, F_GETFD) != -1 && access(keys, R_OK) == 0;
+    if (valid) {
+        const std::string fdValue = std::to_string(gameFd);
+        valid = setenv("NX_GAME_FD", fdValue.c_str(), 1) == 0 &&
+                setenv("NX_GAME_NAME", name, 1) == 0 &&
+                setenv("NX_KEYS", keys, 1) == 0;
     }
     if (name) env->ReleaseStringUTFChars(gameName, name);
     if (keys) env->ReleaseStringUTFChars(keysPath, keys);
+    if (!valid) {
+        unsetenv("NX_GAME_FD");
+        unsetenv("NX_GAME_NAME");
+        unsetenv("NX_KEYS");
+        if (gameFd >= 0) close(gameFd);
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
 }

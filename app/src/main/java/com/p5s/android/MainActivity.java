@@ -274,7 +274,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         startActivityForResult(intent, PICK_KEYS_FILE);
     }
 
-    private native void configureRuntime(int gameFd, String gameName, String keysPath);
+    private native boolean configureRuntime(int gameFd, String gameName, String keysPath);
 
     private void launchNativeRuntime() {
         String gameUriText = settings.getString("game_uri", null);
@@ -299,7 +299,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             // Transfer ownership of the game descriptor only after every other preparation
             // step succeeds. Until detachFd(), the ParcelFileDescriptor closes it on failure.
             int fd = pfd.detachFd();
-            configureRuntime(fd, settings.getString("game_name", "game.nsp"), keysCopy.getAbsolutePath());
+            if (!configureRuntime(fd, settings.getString("game_name", "game.nsp"), keysCopy.getAbsolutePath())) {
+                throw new IllegalStateException("O descritor do jogo ou o acesso a prod.keys não pôde ser validado pelo runtime.");
+            }
             startActivity(new Intent(this, android.app.NativeActivity.class));
         } catch (Exception e) {
             if (pfd != null) try { pfd.close(); } catch (Exception ignored) {}

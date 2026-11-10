@@ -47,3 +47,9 @@ Esses itens devem ser tratados separadamente. Não há evidência suficiente par
 O runtime ARM64 e o APK integrado foram compilados com sucesso no workflow [P5S shared runtime integration — execução 48](https://github.com/Sluca261/-P5S-Android/actions/runs/42804446224). O APK contém as bibliotecas do runtime e do tradutor e passou pela verificação estática do pipeline. Os três testes no dispositivo alcançaram inicialização de NVN e apresentação do primeiro frame, mas terminaram de forma consistente durante a inicialização/leitura HID. Na terceira execução, os endereços observados para a vi layer (`0xb4000072b4fe2810`) e para buffer-to-texture copy (`501cb19fb0`) mudaram, sem alterar o resultado final.
 
 **O projeto continua experimental e não é jogável.** Não há comprovação de cena jogável, controle funcional dentro do jogo, combate, áudio de jogo ou salvamento.
+
+## Instrumentação HID preparada para a próxima compilação
+
+Foi atualizado o script de adaptação do runtime para incluir rastreamento limitado (até 128 solicitações IPC) de chamadas ao serviço `hid`, registrando ID do comando, tipo da mensagem, tamanho dos dados e quantidade de descritores/objetos. Também serão registradas as primeiras 32 entradas na HLE `GetTouchScreenState`, com o endereço de saída e o contador de amostragem.
+
+A instrumentação é somente observacional: não registra conteúdo sensível dos buffers, não inventa respostas, não altera o comportamento do serviço e não conecta ainda os controles Android ao runtime. O objetivo é descobrir se o processo consulta o serviço IPC `hid` antes do erro e quais IDs de comando aparecem, além de confirmar quantas vezes a rotina HLE de toque é chamada. O workflow de integração é disparado pela alteração do script; o próximo teste no aparelho deverá usar o APK resultante e compartilhar o novo `nx.log` completo.

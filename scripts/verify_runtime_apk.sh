@@ -12,6 +12,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 for entry in \
+  lib/arm64-v8a/libnative-lib.so \
   lib/arm64-v8a/libp5s.so \
   lib/arm64-v8a/libspirvharness.so; do
   if ! unzip -Z1 "$apk" | grep -Fxq "$entry"; then
@@ -36,6 +37,7 @@ check_arm64() {
     exit 1
   fi
 }
+check_arm64 "$tmp/libnative-lib.so"
 check_arm64 "$tmp/libp5s.so"
 check_arm64 "$tmp/libspirvharness.so"
 
@@ -48,15 +50,26 @@ echo "---- NativeActivity dynamic export via nm ----"
 
 p5s_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libp5s.so")"
 spirv_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libspirvharness.so")"
+app_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libnative-lib.so")"
 
 # Avoid grep -q in a pipe under pipefail: an early match can SIGPIPE readelf.
-if ! grep -q 'ANativeActivity_onCreate' <<<"$p5s_dyn_symbols"; then
-  echo "libp5s.so does not export ANativeActivity_onCreate" >&2
+has_global_export() {
+  local symbols="$1"
+  local name="$2"
+  awk -v wanted="$name" '$4 == "FUNC" && $5 == "GLOBAL" && $6 == "DEFAULT" && $7 != "UND" && $8 == wanted { found = 1 } END { exit !found }' <<<"$symbols"
+}
+
+if ! has_global_export "$p5s_dyn_symbols" "ANativeActivity_onCreate"; then
+  echo "libp5s.so does not define the global NativeActivity entry point" >&2
   exit 1
 fi
-if ! grep -q 'spirv_harness_main' <<<"$spirv_dyn_symbols"; then
-  echo "libspirvharness.so does not export spirv_harness_main" >&2
+if ! has_global_export "$spirv_dyn_symbols" "spirv_harness_main"; then
+  echo "libspirvharness.so does not define the global shader translator entry point" >&2
+  exit 1
+fi
+if ! has_global_export "$app_dyn_symbols" "Java_com_p5s_android_MainActivity_configureRuntime"; then
+  echo "libnative-lib.so does not define the launcher JNI runtime bridge" >&2
   exit 1
 fi
 
-echo "Runtime APK verified: ARM64 NativeActivity and on-demand shader translator are packaged with required exports."
+echo "Runtime APK verified: all three ARM64 libraries, NativeActivity entry point, shader translator and launcher JNI bridge are present."

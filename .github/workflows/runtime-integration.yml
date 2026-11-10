@@ -7,6 +7,8 @@ on:
       - 'games/p5s/game.cpp'
       - 'scripts/patch_p5s_runtime.py'
       - 'scripts/verify_runtime_apk.sh'
+      - 'app/src/main/java/com/p5s/android/MainActivity.java'
+      - 'app/src/main/cpp/native-lib.cpp'
       - '.github/workflows/runtime-integration.yml'
 
 permissions:

@@ -87,3 +87,9 @@ A integração experimental do runtime compartilhado foi conectada ao APK: o CI 
 A ponte JNI agora valida o próprio descritor que será entregue ao runtime, em vez de confiar apenas no nome do arquivo ou em uma leitura separada pelo Storage Access Framework. Antes de configurar o ambiente nativo, exige um arquivo regular, legível e seekable; em seguida, usa `pread()` para conferir a assinatura `PFS0` no início de NSP ou `HEAD` no deslocamento `0x100` de XCI. A comparação da extensão ignora maiúsculas/minúsculas.
 
 Essa checagem reduz o risco de iniciar o runtime com descritor não suportado, arquivo trocado após a seleção ou extensão que não corresponde ao cabeçalho. Ela não interpreta NCA, não descriptografa conteúdo, não confirma Title ID/Build ID e não comprova boot do jogo. A próxima validação depende da compilação do workflow de runtime e de um teste no dispositivo com um arquivo local obtido legalmente.
+
+## Primeiro frame do runtime no dispositivo (10/11/2026)
+
+Dois testes no aparelho alcançaram a inicialização de NVN/Vulkan, apresentação do primeiro frame, inicialização do renderer de áudio e tradução de shaders. A execução termina logo depois, no entorno de uma chamada HID, com resultado `0x52CA`. A auditoria diferencia a função HLE de toque (presente, mas retorna zero contatos) do serviço IPC `hid` (ainda não registrado e atendido por stub). A causa exata do encerramento ainda está em investigação; também há pendências separadas no mapeamento de recursos de shaders e em formatos de textura/Vulkan. Consulte [o relatório de diagnóstico](docs/DEVICE_BOOT_DIAGNOSTICS_2026-11-10.md).
+
+**Esse marco comprova apresentação de um frame pelo runtime, não uma cena do jogo nem jogabilidade. O projeto continua experimental e não jogável.** O workflow integrado [run 42804446224](https://github.com/Sluca261/-P5S-Android/actions/runs/42804446224) foi concluído com sucesso e publicou o APK `P5S-Android-runtime-debug`.

@@ -318,3 +318,19 @@ missing_replacement = '''                if (s.type == 2 || s.type == 0) target 
 if loader_text.count(missing_anchor) != 1:
     raise SystemExit("loader.cpp: unresolved import diagnostic insertion point not found uniquely")
 loader_cpp.write_text(loader_text.replace(missing_anchor, missing_replacement))
+
+
+# Give P5S a visible on-screen controller layout. The shared runtime's generic touch
+# fallback accepts taps but draws no buttons for games without a registered layout.
+# Reuse the neutral Switch face-button/shoulder/d-pad arrangement; this adds no P5R
+# executable offsets or gameplay hooks.
+touch_cpp = root / "runtime/src/touch_layout.cpp"
+touch_text = touch_cpp.read_text()
+touch_anchor = '''    {"p5r", kP5R, std::size(kP5R), true, 0, 0.15f, 0.76f},
+};'''
+touch_replacement = '''    {"p5r", kP5R, std::size(kP5R), true, 0, 0.15f, 0.76f},
+    {"p5s", kP5R, std::size(kP5R), true, 0, 0.15f, 0.76f},
+};'''
+if touch_text.count(touch_anchor) != 1:
+    raise SystemExit("touch_layout.cpp: P5R layout registration point not found uniquely")
+touch_cpp.write_text(touch_text.replace(touch_anchor, touch_replacement))

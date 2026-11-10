@@ -66,7 +66,8 @@ bool translate_shader_on_demand(const std::string& hash, const uint8_t* code, ui
         ? reinterpret_cast<HarnessMain>(dlsym(library, "spirv_harness_main"))
         : nullptr;
     if (!run) {
-        log("nvn: on-demand shader translator unavailable: %s", dlerror() ? dlerror() : "missing export");
+        const char* error = dlerror();
+        log("nvn: on-demand shader translator unavailable: %s", error ? error : "missing export");
         return false;
     }
 

@@ -16,6 +16,7 @@
 #include <android/asset_manager.h>
 #define VK_USE_PLATFORM_ANDROID_KHR
 #include <vulkan/vulkan.h>
+#include "p5s_identity.h"
 
 static std::atomic<bool> g_stopRendering{false};
 static std::atomic<uint64_t> g_buttonMask{0};

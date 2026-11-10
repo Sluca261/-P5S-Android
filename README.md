@@ -82,3 +82,8 @@ A integração experimental do runtime compartilhado foi conectada ao APK: o CI 
 
 **Importante:** isso comprova build e empacotamento, não compatibilidade nem jogabilidade. Ainda não há comprovação de boot de um dump real de Persona 5 Strikers, primeira cena renderizada, combate, áudio ou salvamento. O adaptador P5S permanece sem hooks específicos até que o executável correto seja identificado e analisado. Consulte [docs/P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md) para os marcos e limitações atuais.
 
+## Validação nativa do contêiner no descritor do runtime (etapa 27)
+
+A ponte JNI agora valida o próprio descritor que será entregue ao runtime, em vez de confiar apenas no nome do arquivo ou em uma leitura separada pelo Storage Access Framework. Antes de configurar o ambiente nativo, exige um arquivo regular, legível e seekable; em seguida, usa `pread()` para conferir a assinatura `PFS0` no início de NSP ou `HEAD` no deslocamento `0x100` de XCI. A comparação da extensão ignora maiúsculas/minúsculas.
+
+Essa checagem reduz o risco de iniciar o runtime com descritor não suportado, arquivo trocado após a seleção ou extensão que não corresponde ao cabeçalho. Ela não interpreta NCA, não descriptografa conteúdo, não confirma Title ID/Build ID e não comprova boot do jogo. A próxima validação depende da compilação do workflow de runtime e de um teste no dispositivo com um arquivo local obtido legalmente.

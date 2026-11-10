@@ -46,11 +46,15 @@ echo "---- NativeActivity full symbol table ----"
 echo "---- NativeActivity dynamic export via nm ----"
 "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only "$tmp/libp5s.so" | grep -E 'ANativeActivity|p5s_internal|glue_ANative' || true
 
-if ! "$readelf" --dyn-syms --wide "$tmp/libp5s.so" | grep -q 'ANativeActivity_onCreate'; then
+p5s_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libp5s.so")"
+spirv_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libspirvharness.so")"
+
+# Avoid grep -q in a pipe under pipefail: an early match can SIGPIPE readelf.
+if ! grep -q 'ANativeActivity_onCreate' <<<"$p5s_dyn_symbols"; then
   echo "libp5s.so does not export ANativeActivity_onCreate" >&2
   exit 1
 fi
-if ! "$readelf" --dyn-syms --wide "$tmp/libspirvharness.so" | grep -q 'spirv_harness_main'; then
+if ! grep -q 'spirv_harness_main' <<<"$spirv_dyn_symbols"; then
   echo "libspirvharness.so does not export spirv_harness_main" >&2
   exit 1
 fi

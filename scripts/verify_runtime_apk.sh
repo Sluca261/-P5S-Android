@@ -63,7 +63,7 @@ echo "---- Launcher JNI dynamic symbols ----"
 has_global_export() {
   local symbols="$1"
   local name="$2"
-  awk -v wanted="$name" '$4 == "FUNC" && $5 == "GLOBAL" && $6 == "DEFAULT" && $7 != "UND" && $8 == wanted { found = 1 } END { exit !found }' <<<"$symbols"
+  awk -v wanted="$name" '$4 == "FUNC" && $5 == "GLOBAL" && $6 == "DEFAULT" && $7 != "UND" { symbol = $8; sub(/@@.*/, "", symbol); if (symbol == wanted) found = 1 } END { exit !found }' <<<"$symbols"
 }
 
 if ! has_global_export "$p5s_dyn_symbols" "ANativeActivity_onCreate"; then

@@ -290,3 +290,31 @@ main_replacement = '''    if (nso.size() < 2) fatal("failed to load base modules
 if text.count(main_anchor) != 1:
     raise SystemExit("main.cpp: build-ID diagnostic insertion point not found uniquely")
 main_cpp.write_text(text.replace(main_anchor, main_replacement))
+
+
+# Log a bounded sample of unresolved dynamic imports. This is especially useful for P5S,
+# whose service/SDK imports are not yet validated against a real game startup.
+loader_cpp = root / "runtime/src/loader.cpp"
+loader_text = loader_cpp.read_text()
+loader_anchor = '''    size_t hle = 0, missing = 0, linked = 0;
+    for (auto& lm : g_modules) {'''
+loader_replacement = '''    size_t hle = 0, missing = 0, linked = 0, missing_logged = 0;
+    for (auto& lm : g_modules) {'''
+if loader_text.count(loader_anchor) != 1:
+    raise SystemExit("loader.cpp: import diagnostic insertion point not found uniquely")
+loader_text = loader_text.replace(loader_anchor, loader_replacement)
+missing_anchor = '''                if (s.type == 2 || s.type == 0) target = hle_address(s.name);
+                missing++;
+            }
+            *slot = target + uint64_t(r.addend);'''
+missing_replacement = '''                if (s.type == 2 || s.type == 0) target = hle_address(s.name);
+                if (missing_logged < 64) {
+                    log("unresolved import: %s (module %s, type %u)", s.name, mi->name, s.type);
+                    missing_logged++;
+                }
+                missing++;
+            }
+            *slot = target + uint64_t(r.addend);'''
+if loader_text.count(missing_anchor) != 1:
+    raise SystemExit("loader.cpp: unresolved import diagnostic insertion point not found uniquely")
+loader_cpp.write_text(loader_text.replace(missing_anchor, missing_replacement))

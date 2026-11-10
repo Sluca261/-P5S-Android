@@ -475,14 +475,27 @@ touch_anchor = """void GetTouchScreenState(CPU& c) {
 touch_new = """void GetTouchScreenState(CPU& c) {
     static std::atomic<uint32_t> touch_reads{0};
     const uint32_t n = ++touch_reads;
+    const uint64_t out = c.x[0];
+    constexpr uint64_t kTouchState16Size = 0x290;
+    const VmInfo region = vm_query(out);
+    const bool in_region = out >= region.addr && out - region.addr <= region.size &&
+                           kTouchState16Size <= region.size - (out - region.addr);
+    const bool writable = in_region && (region.perm & 2u) != 0 &&
+                          region.state != kMemFree && region.state != kMemInaccessible;
     if (n <= 32) {
-        log("hid: GetTouchScreenState #%u out=%s sampling=%llu",
-            n, describe(c.x[0]).c_str(), (unsigned long long)g_sampling);
+        log("hid: GetTouchScreenState #%u out=%s addr=%llx size=%llx state=%#x perm=%#x writable=%s sampling=%llu",
+            n, describe(out).c_str(), (unsigned long long)out,
+            (unsigned long long)region.size, region.state, region.perm,
+            writable ? "yes" : "no", (unsigned long long)g_sampling);
     }
-    // A complete empty TouchScreenState<16>: sampling, count, reserved and
-    // all 16 TouchState slots are initialized, so callers never see stale bytes.
-    std::memset(reinterpret_cast<void*>(c.x[0]), 0, 0x290);
-    st<int64_t>(c.x[0], int64_t(g_sampling));
+    // Never dereference a guest pointer unless the complete output range is
+    // represented by one writable guest-memory region.
+    if (!writable) {
+        if (n <= 32) log("hid: refusing touchscreen write to unmapped/read-only output");
+        return;
+    }
+    std::memset(reinterpret_cast<void*>(out), 0, kTouchState16Size);
+    st<int64_t>(out, int64_t(g_sampling));
 }"""
 if hid_text.count(touch_anchor) != 1:
     raise SystemExit("hle_hid.cpp: GetTouchScreenState instrumentation point not found uniquely")
@@ -498,3 +511,5 @@ if hid_text.count(hid_register) != 1:
 
 print("Verified the existing templated GetTouchScreenState<16> HLE export; no duplicate export added.")
 
+
+# Rebuild trigger: validate GetTouchScreenState output against the guest VM map before writing.

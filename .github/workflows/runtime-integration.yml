@@ -36,6 +36,11 @@ jobs:
       - name: Install Android NDK
         run: sdkmanager 'platform-tools' 'ndk;28.2.13676358'
 
+      - name: Set up .NET 10 for the ARM64 shader translator
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Install native build tools
         run: |
           sudo apt-get update -qq
@@ -49,7 +54,7 @@ jobs:
           cp games/p5s/game.cpp runtime-src/games/p5s/game.cpp
           test -f runtime-src/runtime/include/nx/game.h
           grep -q 'namespace nx::game' runtime-src/games/p5s/game.cpp
-          git -C runtime-src apply "$GITHUB_WORKSPACE/patches/runtime-android-nce-data-root.patch"
+          python3 scripts/patch_p5s_runtime.py runtime-src
 
       - name: Prepare Vulkan headers and Android dependencies
         run: |
@@ -61,6 +66,8 @@ jobs:
           curl -fsSL -o private/third_party/ryubing.tar.gz https://codeberg.org/Software_arch/Ryubing/archive/a82350bb77.tar.gz
           tar -xzf private/third_party/ryubing.tar.gz -C private/third_party/ryubing --strip-components=1
           rm private/third_party/ryubing.tar.gz
+          mkdir -p runtime-src/private/third_party
+          cp -a private/third_party/ryubing runtime-src/private/third_party/ryubing
 
       - name: Configure shared runtime for P5S (ARM64 NCE)
         run: |
@@ -83,10 +90,25 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Build ARM64 Maxwell-to-SPIR-V translator
+        run: |
+          NDK="$ANDROID_HOME/ndk/28.2.13676358"
+          export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          dotnet publish runtime-src/tools/maxwell/spirv_harness/SpirvHarness.csproj \
+            -c Release -r linux-bionic-arm64 \
+            -p:NxBuildDir=spirv_harness_android \
+            -p:PublishAot=true -p:NativeLib=Shared -p:OutputType=Library \
+            -p:DisableUnsupportedError=true -p:PublishAotUsingRuntimePack=true \
+            -p:CppCompilerAndLinker="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang" \
+            -p:ObjCopyName="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy" \
+            -p:StripSymbols=true -o "$GITHUB_WORKSPACE/build-p5s-harness/publish"
+          cp build-p5s-harness/publish/spirv_harness.so build-p5s-harness/libspirvharness.so
+
       - name: Package native runtime and build APK
         run: |
           mkdir -p app/src/main/jniLibs/arm64-v8a
           cp build-p5s-runtime/libp5s.so app/src/main/jniLibs/arm64-v8a/libp5s.so
+          cp build-p5s-harness/libspirvharness.so app/src/main/jniLibs/arm64-v8a/libspirvharness.so
           sudo apt-get install -y -qq glslang-tools
           mkdir -p app/build/generated/shaders
           glslangValidator -V app/src/main/shaders/triangle.vert -o app/build/generated/shaders/triangle.vert.spv

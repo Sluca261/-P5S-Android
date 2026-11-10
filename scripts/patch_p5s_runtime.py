@@ -180,4 +180,15 @@ if text.count(old_missing) != 1:
     raise SystemExit("nvn_shaders.cpp: shader cache miss block not found uniquely")
 text = text.replace(old_missing, new_missing)
 shaders.write_text(text)
-print("Applied P5S runtime adaptations: NSP-backed data root and generic on-demand Maxwell shader translation.")
+
+# The upstream Android target compiles with -fvisibility=hidden. Its NativeActivity
+# entry point therefore needs an explicit default-visibility annotation or Android
+# cannot resolve ANativeActivity_onCreate from libp5s.so at launch.
+platform_text = platform.read_text()
+old_entry = 'extern "C" void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
+new_entry = 'extern "C" __attribute__((visibility("default"))) void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
+if platform_text.count(old_entry) != 1:
+    raise SystemExit("platform_android.cpp: NativeActivity entry point not found uniquely")
+platform.write_text(platform_text.replace(old_entry, new_entry))
+
+print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell shader translation, and exported NativeActivity entry point.")

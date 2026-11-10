@@ -407,3 +407,52 @@ if text.count(image_log_anchor) != 1:
     raise SystemExit("game_image.cpp: parsed-image log insertion point not found uniquely")
 text = text.replace(image_log_anchor, image_log_replacement)
 image.write_text(text)
+
+
+# Trace HID IPC traffic and the HLE touch-screen entry point on device.
+# This is diagnostic only: do not guess service command layouts or fabricate responses.
+ipc_cpp = root / "runtime/src/ipc.cpp"
+ipc_text = ipc_cpp.read_text()
+ipc_include = "#include <mutex>\\n#include <set>"
+ipc_include_new = "#include <atomic>\\n#include <mutex>\\n#include <set>"
+if ipc_text.count(ipc_include) != 1:
+    raise SystemExit("ipc.cpp: include insertion point not found uniquely")
+ipc_text = ipc_text.replace(ipc_include, ipc_include_new)
+handle_anchor = """uint32_t Service::handle(IpcCtx& ctx) {
+    auto it = cmds.find(ctx.cmd);"""
+handle_new = """uint32_t Service::handle(IpcCtx& ctx) {
+    if (name == "hid") {
+        static std::atomic<uint32_t> hid_requests{0};
+        const uint32_t n = ++hid_requests;
+        if (n <= 128) {
+            log("ipc: HID request #%u cmd %u type %u data %zu desc A/B/X/C %zu/%zu/%zu/%zu objects %zu/%zu",
+                n, ctx.cmd, ctx.type, ctx.in_size, ctx.a.size(), ctx.b.size(),
+                ctx.x.size(), ctx.c.size(), ctx.in_objects.size(), ctx.in_services.size());
+        }
+    }
+    auto it = cmds.find(ctx.cmd);"""
+if ipc_text.count(handle_anchor) != 1:
+    raise SystemExit("ipc.cpp: Service::handle instrumentation point not found uniquely")
+ipc_cpp.write_text(ipc_text.replace(handle_anchor, handle_new))
+
+hid_cpp = root / "runtime/src/hle_hid.cpp"
+hid_text = hid_cpp.read_text()
+touch_anchor = """void GetTouchScreenState(CPU& c) {
+    st<int64_t>(c.x[0], int64_t(g_sampling));
+    st<int32_t>(c.x[0] + 8, 0);
+}"""
+touch_new = """void GetTouchScreenState(CPU& c) {
+    static std::atomic<uint32_t> touch_reads{0};
+    const uint32_t n = ++touch_reads;
+    if (n <= 32) {
+        log("hid: GetTouchScreenState #%u out=%s sampling=%llu",
+            n, describe(c.x[0]).c_str(), (unsigned long long)g_sampling);
+    }
+    st<int64_t>(c.x[0], int64_t(g_sampling));
+    st<int32_t>(c.x[0] + 8, 0);
+}"""
+if hid_text.count(touch_anchor) != 1:
+    raise SystemExit("hle_hid.cpp: GetTouchScreenState instrumentation point not found uniquely")
+hid_cpp.write_text(hid_text.replace(touch_anchor, touch_new))
+
+print("Added bounded HID IPC and touch-HLE diagnostics; no service behavior or input semantics changed.")

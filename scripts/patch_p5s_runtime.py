@@ -496,7 +496,7 @@ hid_register = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateEPNS0_16TouchScreenStateI
 hid_registration_anchor = 'NX_HLE("_ZN2nn3hid28SetNpadJoyAssignmentModeDualERKj", noop);'
 if hid_text.count(hid_registration_anchor) != 1:
     raise SystemExit("hle_hid.cpp: final HID registration anchor not found uniquely")
-hid_text = hid_text.replace(hid_registration_anchor, hid_registration_anchor + "\\n" + hid_register)
+hid_text = hid_text.replace(hid_registration_anchor, hid_registration_anchor + "\n" + hid_register)
 hid_cpp.write_text(hid_text)
 
 print("Registered the previously unexported GetTouchScreenState<16> HLE symbol.")

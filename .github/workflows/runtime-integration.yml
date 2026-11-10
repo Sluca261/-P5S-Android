@@ -31,7 +31,10 @@ jobs:
       - name: Install Android toolchain
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools,ndk;28.2.13676358
+          packages: ''
+
+      - name: Install Android NDK
+        run: sdkmanager 'platform-tools' 'ndk;28.2.13676358'
 
       - name: Install native build tools
         run: |

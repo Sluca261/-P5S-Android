@@ -52,6 +52,13 @@ p5s_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libp5s.so")"
 spirv_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libspirvharness.so")"
 app_dyn_symbols="$("$readelf" --dyn-syms --wide "$tmp/libnative-lib.so")"
 
+echo "---- Shader translator dynamic symbols ----"
+"$readelf" --dyn-syms --wide "$tmp/libspirvharness.so" | grep -E 'spirv_harness|Unmanaged|RunExport|ProgressExport' || true
+echo "---- Shader translator dynamic exports via nm ----"
+"$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only "$tmp/libspirvharness.so" | grep -E 'spirv_harness|Unmanaged|RunExport|ProgressExport' || true
+echo "---- Launcher JNI dynamic symbols ----"
+"$readelf" --dyn-syms --wide "$tmp/libnative-lib.so" | grep -E 'Java_com_p5s_android_MainActivity_configureRuntime' || true
+
 # Avoid grep -q in a pipe under pipefail: an early match can SIGPIPE readelf.
 has_global_export() {
   local symbols="$1"

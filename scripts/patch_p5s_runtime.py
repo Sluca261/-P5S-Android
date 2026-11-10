@@ -193,15 +193,34 @@ if platform_text.count(entry) != 1:
     raise SystemExit("platform_android.cpp: NativeActivity entry point not found uniquely")
 platform.write_text(platform_text.replace(entry, exported_entry))
 
-# Keep the NativeActivity entry point in the ELF dynamic symbol table. Visibility
-# alone did not survive this target's link, so force the symbol into the link.
+# Export a small, independently compiled NativeActivity wrapper. The runtime's
+# implementation is renamed in its translation unit, then called by this wrapper.
 cmake = root / "CMakeLists.txt"
 cmake_text = cmake.read_text()
 link_anchor = '    target_link_libraries(${NX_GAME} PRIVATE ${NX_GAME_LIBS} android log aaudio mediandk)'
-link_export = link_anchor + '\n    target_link_options(${NX_GAME} PRIVATE -u ANativeActivity_onCreate -Wl,--undefined=ANativeActivity_onCreate -Wl,--export-dynamic -Wl,--export-dynamic-symbol=ANativeActivity_onCreate)'
+link_export = link_anchor + '\n    target_link_options(${NX_GAME} PRIVATE -u ANativeActivity_onCreate -Wl,--undefined=ANativeActivity_onCreate -Wl,--export-dynamic-symbol=ANativeActivity_onCreate)'
 if cmake_text.count(link_anchor) != 1:
     raise SystemExit("CMakeLists.txt: Android runtime link block not found uniquely")
-cmake.write_text(cmake_text.replace(link_anchor, link_export))
+cmake_text = cmake_text.replace(link_anchor, link_export)
+source_anchor = '    target_link_options(${NX_GAME} PRIVATE -u ANativeActivity_onCreate -Wl,--undefined=ANativeActivity_onCreate -Wl,--export-dynamic-symbol=ANativeActivity_onCreate)'
+source_patch = source_anchor + '''
+    set_source_files_properties(runtime/src/platform_android.cpp PROPERTIES
+        COMPILE_DEFINITIONS "ANativeActivity_onCreate=p5s_internal_ANativeActivity_onCreate")
+    target_sources(${NX_GAME} PRIVATE runtime/src/native_activity_export.cpp)'''
+if cmake_text.count(source_anchor) != 1:
+    raise SystemExit("CMakeLists.txt: NativeActivity link option anchor not found uniquely")
+cmake.write_text(cmake_text.replace(source_anchor, source_patch))
 
+export_file = root / "runtime/src/native_activity_export.cpp"
+export_file.write_text("""#include <android/native_activity.h>
+#include <cstddef>
+
+extern "C" void p5s_internal_ANativeActivity_onCreate(ANativeActivity*, void*, size_t);
+
+extern "C" __attribute__((visibility("default")))
+void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {
+    p5s_internal_ANativeActivity_onCreate(activity, saved, size);
+}
+""")
 
 print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell shader translation, and exported NativeActivity entry point.")

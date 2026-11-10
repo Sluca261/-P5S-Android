@@ -44,8 +44,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private static final int PICK_GAME_FILE = 41;
     private static final int PICK_KEYS_FILE = 42;
     private Uri selectedKeysUri;
-    private static final int PICK_KEYS_FILE = 42;
-    private Uri selectedKeysUri;
     private static final String PREFS = "p5s_launcher";
     private TextView surfaceResult;
     private TextView selectedGameStatus;
@@ -108,13 +106,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         launchGame.setText("Iniciar Persona 5 Strikers");
         launchGame.setOnClickListener(v -> launchNativeRuntime());
 
-        Button selectKeys = new Button(this);
-        selectKeys.setText("Selecionar prod.keys");
-        selectKeys.setOnClickListener(v -> openKeysPicker());
 
-        Button launchGame = new Button(this);
-        launchGame.setText("Iniciar Persona 5 Strikers");
-        launchGame.setOnClickListener(v -> launchNativeRuntime());
 
         selectedGameStatus = new TextView(this);
         selectedGameStatus.setTextSize(13);
@@ -263,45 +255,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         startActivityForResult(intent, PICK_GAME_FILE);
-    }
-
-    private void openKeysPicker() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(intent, PICK_KEYS_FILE);
-    }
-
-    private native void configureRuntime(int gameFd, String gameName, String keysPath);
-
-    private void launchNativeRuntime() {
-        String gameUriText = settings.getString("game_uri", null);
-        if (gameUriText == null || selectedKeysUri == null) {
-            Toast.makeText(this, "Selecione o NSP/XCI e o arquivo prod.keys.", Toast.LENGTH_LONG).show();
-            return;
-        }
-        android.os.ParcelFileDescriptor pfd = null;
-        try {
-            Uri gameUri = Uri.parse(gameUriText);
-            pfd = getContentResolver().openFileDescriptor(gameUri, "r");
-            if (pfd == null) throw new IllegalStateException("Não foi possível abrir o jogo.");
-            int fd = pfd.detachFd();
-            java.io.File keysCopy = new java.io.File(getFilesDir(), "prod.keys");
-            try (InputStream in = getContentResolver().openInputStream(selectedKeysUri);
-                 java.io.FileOutputStream out = new java.io.FileOutputStream(keysCopy)) {
-                if (in == null) throw new IllegalStateException("Não foi possível ler prod.keys.");
-                byte[] buffer = new byte[8192];
-                int count;
-                while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
-                out.getFD().sync();
-            }
-            configureRuntime(fd, settings.getString("game_name", "game.nsp"), keysCopy.getAbsolutePath());
-            startActivity(new Intent(this, android.app.NativeActivity.class));
-        } catch (Exception e) {
-            if (pfd != null) try { pfd.close(); } catch (Exception ignored) {}
-            Toast.makeText(this, "Falha ao preparar o runtime: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
     }
 
     private void openKeysPicker() {

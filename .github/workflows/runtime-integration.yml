@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'games/p5s/game.cpp'
+      - 'scripts/patch_p5s_runtime.py'
       - '.github/workflows/runtime-integration.yml'
 
 permissions:

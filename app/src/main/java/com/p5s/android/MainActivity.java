@@ -63,6 +63,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         settings = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String savedKeysUri = settings.getString("keys_uri", null);
+        if (savedKeysUri != null) {
+            try {
+                selectedKeysUri = Uri.parse(savedKeysUri);
+                getContentResolver().takePersistableUriPermission(selectedKeysUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+                selectedKeysUri = null;
+            }
+        }
         controlScale = settings.getFloat("control_scale", 1.0f);
         controlOpacity = settings.getFloat("control_opacity", 1.0f);
 
@@ -113,7 +122,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         selectedGameStatus.setPadding(0, 8, 0, 12);
 
         TextView preparationStatus = new TextView(this);
-        preparationStatus.setText("Estado: importador NSP/XCI e runtime ainda não implementados. A seleção não instala, descriptografa nem executa o jogo.");
+        preparationStatus.setText("O runtime ARM64 está integrado em fase inicial. A compatibilidade de inicialização, shaders e serviços específicos de Persona 5 Strikers ainda está em desenvolvimento.");
         preparationStatus.setTextSize(12);
         preparationStatus.setPadding(0, 4, 0, 14);
 
@@ -309,7 +318,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             try {
                 getContentResolver().takePersistableUriPermission(keysUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 selectedKeysUri = keysUri;
-                Toast.makeText(this, "prod.keys selecionado.", Toast.LENGTH_SHORT).show();
+                settings.edit().putString("keys_uri", keysUri.toString()).apply();
+                Toast.makeText(this, "prod.keys selecionado e salvo para os próximos usos.", Toast.LENGTH_SHORT).show();
             } catch (SecurityException e) {
                 Toast.makeText(this, "Não foi possível manter o acesso ao arquivo.", Toast.LENGTH_LONG).show();
             }

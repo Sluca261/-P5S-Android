@@ -71,3 +71,10 @@ Foi adicionada uma definição nativa isolada para reconhecer o Title ID base de
 ## Adaptador inicial do runtime para a versão americana
 
 O contrato mínimo do jogo para uma futura integração do runtime compartilhado está em `runtime-adapter/games/p5s/game.cpp`. Ele registra o Title ID-base americano e mantém deliberadamente vazios os callbacks específicos, sem importar offsets ou hooks de Persona 5 Royal. Isso ainda não está conectado ao CMake do aplicativo e **não torna o APK jogável**. Os requisitos de integração e validação estão em [P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md).
+
+## Integração do runtime ARM64 (2026-11-10)
+
+A integração experimental do runtime compartilhado foi conectada ao APK: o CI compila `libp5s.so` com NCE, gera o tradutor ARM64 Maxwell→SPIR-V e empacota as bibliotecas no aplicativo. A execução passou pela validação estática de arquitetura ELF e dos símbolos NativeActivity e do tradutor no workflow [42758709005](https://github.com/Sluca261/-P5S-Android/actions/runs/42758709005).
+
+**Importante:** isso comprova build e empacotamento, não compatibilidade nem jogabilidade. Ainda não há comprovação de boot de um dump real de Persona 5 Strikers, primeira cena renderizada, combate, áudio ou salvamento. O adaptador P5S permanece sem hooks específicos até que o executável correto seja identificado e analisado. Consulte [docs/P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md) para os marcos e limitações atuais.
+

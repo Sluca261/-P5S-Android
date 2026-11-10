@@ -43,7 +43,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private static final int PICK_GAME_FILE = 41;
     private static final int PICK_KEYS_FILE = 42;
+    private static final int PICK_TITLE_KEYS_FILE = 43;
     private Uri selectedKeysUri;
+    private Uri selectedTitleKeysUri;
     private static final String PREFS = "p5s_launcher";
     private TextView surfaceResult;
     private TextView selectedGameStatus;
@@ -64,12 +66,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onCreate(savedInstanceState);
         settings = getSharedPreferences(PREFS, MODE_PRIVATE);
         String savedKeysUri = settings.getString("keys_uri", null);
+        String savedTitleKeysUri = settings.getString("title_keys_uri", null);
         if (savedKeysUri != null) {
             try {
                 selectedKeysUri = Uri.parse(savedKeysUri);
                 getContentResolver().takePersistableUriPermission(selectedKeysUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } catch (Exception ignored) {
                 selectedKeysUri = null;
+            }
+        }
+        if (savedTitleKeysUri != null) {
+            try {
+                selectedTitleKeysUri = Uri.parse(savedTitleKeysUri);
+                getContentResolver().takePersistableUriPermission(selectedTitleKeysUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {
+                selectedTitleKeysUri = null;
             }
         }
         controlScale = settings.getFloat("control_scale", 1.0f);
@@ -111,6 +122,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         selectKeys.setText("Selecionar prod.keys");
         selectKeys.setOnClickListener(v -> openKeysPicker());
 
+        Button selectTitleKeys = new Button(this);
+        selectTitleKeys.setText("Selecionar title.keys (opcional)");
+        selectTitleKeys.setOnClickListener(v -> openTitleKeysPicker());
+
         Button launchGame = new Button(this);
         launchGame.setText("Iniciar Persona 5 Strikers");
         launchGame.setOnClickListener(v -> launchNativeRuntime());
@@ -146,6 +161,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(launcherInfo);
         content.addView(selectGame);
         content.addView(selectKeys);
+        content.addView(selectTitleKeys);
         content.addView(launchGame);
         content.addView(selectedGameStatus);
 
@@ -274,7 +290,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         startActivityForResult(intent, PICK_KEYS_FILE);
     }
 
-    private native boolean configureRuntime(int gameFd, String gameName, String keysPath);
+    private void openTitleKeysPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, PICK_TITLE_KEYS_FILE);
+    }
+
+    private native boolean configureRuntime(int gameFd, String gameName, String keysPath, String titleKeysPath);
 
     private void launchNativeRuntime() {
         String gameUriText = settings.getString("game_uri", null);
@@ -299,7 +323,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             // Transfer ownership of the game descriptor only after every other preparation
             // step succeeds. Until detachFd(), the ParcelFileDescriptor closes it on failure.
             int fd = pfd.detachFd();
-            if (!configureRuntime(fd, settings.getString("game_name", "game.nsp"), keysCopy.getAbsolutePath())) {
+            String titleKeysPath = null;
+            if (selectedTitleKeysUri != null) {
+                java.io.File titleKeysCopy = new java.io.File(getFilesDir(), "title.keys");
+                try (InputStream in = getContentResolver().openInputStream(selectedTitleKeysUri);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(titleKeysCopy)) {
+                    if (in == null) throw new IllegalStateException("Não foi possível ler title.keys.");
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                    out.getFD().sync();
+                }
+                titleKeysPath = titleKeysCopy.getAbsolutePath();
+            }
+            if (!configureRuntime(fd, settings.getString("game_name", "game.nsp"), keysCopy.getAbsolutePath(), titleKeysPath)) {
                 throw new IllegalStateException("O descritor do jogo ou o acesso a prod.keys não pôde ser validado pelo runtime.");
             }
             startActivity(new Intent(this, android.app.NativeActivity.class));
@@ -313,6 +350,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        if (requestCode == PICK_TITLE_KEYS_FILE) {
+            Uri titleKeysUri = data.getData();
+            if (!"title.keys".equalsIgnoreCase(queryDisplayName(titleKeysUri))) {
+                Toast.makeText(this, "O arquivo precisa se chamar title.keys.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            try {
+                getContentResolver().takePersistableUriPermission(titleKeysUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                selectedTitleKeysUri = titleKeysUri;
+                settings.edit().putString("title_keys_uri", titleKeysUri.toString()).apply();
+                Toast.makeText(this, "title.keys opcional selecionado.", Toast.LENGTH_SHORT).show();
+            } catch (SecurityException e) {
+                Toast.makeText(this, "Não foi possível manter o acesso ao arquivo.", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
         if (requestCode == PICK_KEYS_FILE) {
             Uri keysUri = data.getData();
             if (!"prod.keys".equalsIgnoreCase(queryDisplayName(keysUri))) {

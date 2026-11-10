@@ -409,8 +409,10 @@ text = text.replace(image_log_anchor, image_log_replacement)
 image.write_text(text)
 
 
-# Trace HID IPC traffic and the HLE touch-screen entry point on device.
-# This is diagnostic only: do not guess service command layouts or fabricate responses.
+# Register the two hid server commands observed in P5S startup.
+# Switchbrew documents cmd 101 as GetSupportedNpadStyleSet (u32 result) and
+# cmd 128 as SetNpadHandheldActivationMode (PID, ARUID, s64 mode; no output).
+# Keep this deliberately narrow: no fabricated touch contacts or unrelated HID commands.
 ipc_cpp = root / "runtime/src/ipc.cpp"
 ipc_text = ipc_cpp.read_text()
 ipc_include = "#include <mutex>\n#include <set>"
@@ -418,6 +420,33 @@ ipc_include_new = "#include <atomic>\n#include <mutex>\n#include <set>"
 if ipc_text.count(ipc_include) != 1:
     raise SystemExit("ipc.cpp: include insertion point not found uniquely")
 ipc_text = ipc_text.replace(ipc_include, ipc_include_new)
+registrar_anchor = """void register_service(const std::string& name, ServiceFactory f) { factories()[name] = std::move(f); }
+"""
+registrar_new = registrar_anchor + """
+namespace {
+struct P5SHidServer : Service {
+    P5SHidServer() : Service("hid") {
+        // NpadStyleTag_NpadFullKey: the player-1 pad exposed by the HLE layer.
+        cmds[101] = [](IpcCtx& ctx) {
+            ctx.push<uint32_t>(1u);
+            log("ipc: hid GetSupportedNpadStyleSet -> NpadFullKey");
+            return 0u;
+        };
+        // NpadHandheldActivationMode::Dual (0). The shared runtime presents
+        // player 1 as a full-key controller; no Joy-Con pairing state is modeled.
+        cmds[128] = [](IpcCtx& ctx) {
+            const int64_t mode = ctx.arg<int64_t>(8);
+            log("ipc: hid SetNpadHandheldActivationMode mode %lld (accepted)",
+                (long long)mode);
+            return 0u;
+        };
+    }
+};
+ServiceRegistrar g_p5s_hid_registrar("hid", [] { return std::make_shared<P5SHidServer>(); });
+}  // namespace
+"""
+if ipc_text.count(registrar_anchor) !== 1) throw new Error("register_service anchor mismatch");
+ipc_text = ipc_text.replace(registrar_anchor, registrar_new);
 handle_anchor = """uint32_t Service::handle(IpcCtx& ctx) {
     auto it = cmds.find(ctx.cmd);"""
 handle_new = """uint32_t Service::handle(IpcCtx& ctx) {
@@ -448,11 +477,13 @@ touch_new = """void GetTouchScreenState(CPU& c) {
         log("hid: GetTouchScreenState #%u out=%s sampling=%llu",
             n, describe(c.x[0]).c_str(), (unsigned long long)g_sampling);
     }
+    // A complete empty TouchScreenState<16>: sampling, count, reserved and
+    // all 16 TouchState slots are initialized, so callers never see stale bytes.
+    std::memset(reinterpret_cast<void*>(c.x[0]), 0, 0x290);
     st<int64_t>(c.x[0], int64_t(g_sampling));
-    st<int32_t>(c.x[0] + 8, 0);
 }"""
 if hid_text.count(touch_anchor) != 1:
     raise SystemExit("hle_hid.cpp: GetTouchScreenState instrumentation point not found uniquely")
 hid_cpp.write_text(hid_text.replace(touch_anchor, touch_new))
 
-print("Added bounded HID IPC and touch-HLE diagnostics; no service behavior or input semantics changed.")
+print("Added narrow HID server handlers for observed commands 101/128 and a fully initialized empty touch state; bounded diagnostics remain enabled.")

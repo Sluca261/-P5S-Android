@@ -232,6 +232,38 @@ print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell 
 
 # Rebuild trigger: collect ELF export diagnostics for NativeAOT and launcher JNI.
 
+# Load optional base-game subsdk1..9 modules from ExeFS. subsdk0 is the Switch NVN
+# driver and is intentionally skipped; other modules may contain required game code.
+module_cpp = root / "runtime/src/main.cpp"
+module_text = module_cpp.read_text()
+module_end = '''        }
+    }
+    if (nso.size() < 2) fatal("failed to load base modules (main and sdk required)");'''
+module_replacement = '''        } else if (name != "subsdk0") {
+            // Load optional base-game modules while keeping the Switch NVN driver out.
+            if (image) {
+                auto it = image->exefs().find(name);
+                if (it != image->exefs().end()) {
+                    auto m = nce::load_nso_bytes(it->second, std::string("ExeFS/") + name, name, base, error);
+                    if (m) nso.push_back(std::move(m));
+                    else log("nce: failed to load base ExeFS/%s: %s", name.c_str(), error.c_str());
+                }
+            } else {
+                std::error_code ec;
+                const auto path = fs::u8path(exefs) / fs::u8path(name);
+                if (fs::is_regular_file(path, ec)) {
+                    auto m = nce::load_nso(path.string(), name, base, error);
+                    if (m) nso.push_back(std::move(m));
+                    else log("nce: failed to load base exefs/%s: %s", name.c_str(), error.c_str());
+                }
+            }
+        }
+    }
+    if (nso.size() < 2) fatal("failed to load base modules (main and sdk required)");'''
+if module_text.count(module_end) != 1:
+    raise SystemExit("main.cpp: module-loop insertion point not found uniquely")
+module_cpp.write_text(module_text.replace(module_end, module_replacement))
+
 # Report the actual PFS0/ExeFS main build ID on-device. P5S revisions differ by region/update,
 # and this log is needed to choose any future version-specific compatibility work safely.
 main_cpp = root / "runtime/src/main.cpp"

@@ -35,6 +35,14 @@ android {
         }
     }
 
+    // Preserve extracted native libraries for NativeActivity/dlopen while keeping
+    // the packaging policy in Gradle instead of the deprecated manifest attribute.
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

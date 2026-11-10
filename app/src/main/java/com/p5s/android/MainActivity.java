@@ -130,6 +130,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         launchGame.setText("Iniciar Persona 5 Strikers");
         launchGame.setOnClickListener(v -> launchNativeRuntime());
 
+        Button shareRuntimeLogs = new Button(this);
+        shareRuntimeLogs.setText("Compartilhar diagnóstico do runtime");
+        shareRuntimeLogs.setOnClickListener(v -> shareRuntimeLogs());
+
 
 
         selectedGameStatus = new TextView(this);
@@ -163,6 +167,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         content.addView(selectKeys);
         content.addView(selectTitleKeys);
         content.addView(launchGame);
+        content.addView(shareRuntimeLogs);
         content.addView(selectedGameStatus);
 
         TextView controlsTitle = new TextView(this);
@@ -271,6 +276,50 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         scroll.addView(content);
         setContentView(scroll);
         refreshSelectedGame();
+    }
+
+    // Exporta somente os registros locais do Android relacionados ao runtime P5S.
+    // Nada é enviado automaticamente: o usuário escolhe explicitamente o destino no compartilhamento.
+    private void shareRuntimeLogs() {
+        try {
+            Process process = new ProcessBuilder(
+                    "logcat", "-d", "-v", "threadtime", "-t", "2000",
+                    "p5s:I", "AndroidRuntime:E", "DEBUG:E", "libc:F", "*:S")
+                    .redirectErrorStream(true)
+                    .start();
+
+            StringBuilder output = new StringBuilder();
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream(),
+                            java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                final int maxChars = 180000;
+                while ((line = reader.readLine()) != null) {
+                    if (output.length() + line.length() + 1 > maxChars) {
+                        output.append("\\n[diagnóstico truncado para manter o compartilhamento leve]");
+                        break;
+                    }
+                    output.append(line).append('\\n');
+                }
+            }
+
+            if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                throw new IllegalStateException("A leitura do logcat excedeu o tempo limite.");
+            }
+            if (output.length() == 0) {
+                output.append("Nenhum registro P5S ou erro de inicialização foi encontrado no buffer local do Android.");
+            }
+
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_SUBJECT, "Diagnóstico do runtime Persona 5 Strikers Android");
+            share.putExtra(Intent.EXTRA_TEXT, output.toString());
+            startActivity(Intent.createChooser(share, "Compartilhar diagnóstico"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Não foi possível coletar os registros: " + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private void openGamePicker() {

@@ -1348,3 +1348,20 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
     cleanup();
     return env->NewStringUTF(output.c_str());
 }
+
+
+#include <cstdlib>
+extern "C" JNIEXPORT void JNICALL
+Java_com_p5s_android_MainActivity_configureRuntime(JNIEnv* env, jobject,
+                                                    jint gameFd, jstring gameName,
+                                                    jstring keysPath) {
+    const char* name = env->GetStringUTFChars(gameName, nullptr);
+    const char* keys = env->GetStringUTFChars(keysPath, nullptr);
+    if (name && keys && gameFd >= 0) {
+        setenv("NX_GAME_FD", std::to_string(gameFd).c_str(), 1);
+        setenv("NX_GAME_NAME", name, 1);
+        setenv("NX_KEYS", keys, 1);
+    }
+    if (name) env->ReleaseStringUTFChars(gameName, name);
+    if (keys) env->ReleaseStringUTFChars(keysPath, keys);
+}

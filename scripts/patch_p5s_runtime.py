@@ -339,3 +339,71 @@ touch_replacement = '''    {"p5r", kP5R, std::size(kP5R), true, 0, 0.15f, 0.76f}
 if touch_text.count(touch_anchor) != 1:
     raise SystemExit("touch_layout.cpp: P5R layout registration point not found uniquely")
 touch_cpp.write_text(touch_text.replace(touch_anchor, touch_replacement))
+
+
+# Add explicit boot milestones so the first real-device run can be localized to
+# image parsing, module loading/linking, SDK startup, or the game's nnMain.
+main_cpp = root / "runtime/src/main.cpp"
+text = main_cpp.read_text()
+boot_anchor = """    memory_init();
+    kernel_init();
+#if NX_NCE"""
+boot_replacement = """    log("boot: P5S Android runtime entry");
+    log("boot: reserving guest memory");
+    memory_init();
+    log("boot: initializing Horizon kernel services");
+    kernel_init();
+#if NX_NCE"""
+if text.count(boot_anchor) != 1:
+    raise SystemExit("main.cpp: boot milestone insertion point not found uniquely")
+text = text.replace(boot_anchor, boot_replacement)
+nce_anchor = """    nce::init();
+    static std::vector<std::unique_ptr<nce::NsoModule>> nso;"""
+nce_replacement = """    log("boot: initializing ARM64 native code execution");
+    nce::init();
+    log("boot: NCE initialized; opening selected NSP/XCI");
+    static std::vector<std::unique_ptr<nce::NsoModule>> nso;"""
+if text.count(nce_anchor) != 1:
+    raise SystemExit("main.cpp: NCE milestone insertion point not found uniquely")
+text = text.replace(nce_anchor, nce_replacement)
+modules_anchor = """    g_main = &nso[0]->info, g_sdk = &nso[1]->info;
+    std::vector<const ModuleInfo*> mods;"""
+modules_replacement = """    log("boot: loaded %zu executable modules; preparing dynamic linker", nso.size());
+    g_main = &nso[0]->info, g_sdk = &nso[1]->info;
+    std::vector<const ModuleInfo*> mods;"""
+if text.count(modules_anchor) != 1:
+    raise SystemExit("main.cpp: module-link milestone insertion point not found uniquely")
+text = text.replace(modules_anchor, modules_replacement)
+link_anchor = """    load_modules(mods.data(), mods.size(), "", img_ptrs.data());
+#else"""
+link_replacement = """    log("boot: linking %zu executable modules", mods.size());
+    load_modules(mods.data(), mods.size(), "", img_ptrs.data());
+    log("boot: executable modules linked; preparing main thread");
+#else"""
+if text.count(link_anchor) != 1:
+    raise SystemExit("main.cpp: linker milestone insertion point not found uniquely")
+text = text.replace(link_anchor, link_replacement)
+start_anchor = """    log("entering nn::init::Start at %s", describe(start).c_str());"""
+start_replacement = """    log("boot: SDK startup symbol resolved");
+    log("entering nn::init::Start at %s", describe(start).c_str());"""
+if text.count(start_anchor) != 1:
+    raise SystemExit("main.cpp: SDK startup milestone insertion point not found uniquely")
+text = text.replace(start_anchor, start_replacement)
+main_cpp.write_text(text)
+
+# Distinguish successful container parsing from ExeFS/module loading in the log.
+image = root / "runtime/src/game_image.cpp"
+text = image.read_text()
+image_anchor = """    g_image = nxi::GameImage::open(in, 0, err);"""
+image_replacement = """    log("game: parsing %s and its local key material", shown.c_str());
+    g_image = nxi::GameImage::open(in, 0, err);"""
+if text.count(image_anchor) != 1:
+    raise SystemExit("game_image.cpp: image parsing milestone insertion point not found uniquely")
+text = text.replace(image_anchor, image_replacement)
+image_log_anchor = """    log("game: %s read in place (title %016llx): %zu RomFS files, ExeFS %zu files", shown.c_str(),"""
+image_log_replacement = """    log("game: container parsed successfully");
+    log("game: %s read in place (title %016llx): %zu RomFS files, ExeFS %zu files", shown.c_str(),"""
+if text.count(image_log_anchor) != 1:
+    raise SystemExit("game_image.cpp: parsed-image log insertion point not found uniquely")
+text = text.replace(image_log_anchor, image_log_replacement)
+image.write_text(text)

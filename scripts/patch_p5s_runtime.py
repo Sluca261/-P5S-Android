@@ -488,3 +488,16 @@ if hid_text.count(touch_anchor) != 1:
 hid_cpp.write_text(hid_text.replace(touch_anchor, touch_new))
 
 print("Added narrow HID server handlers for observed commands 101/128 and a fully initialized empty touch state; bounded diagnostics remain enabled.")
+
+# The upstream runtime defines GetTouchScreenState but omits its NX_HLE export.
+# Register the exact SDK-16 TouchScreenState<16>* ABI symbol so the existing
+# initialized empty-state handler is actually reached by the game's direct import.
+hid_register = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateEPNS0_16TouchScreenStateILi16EEE", GetTouchScreenState);'
+hid_registration_anchor = 'NX_HLE("_ZN2nn3hid28SetNpadJoyAssignmentModeDualERKj", noop);'
+if hid_text.count(hid_registration_anchor) != 1:
+    raise SystemExit("hle_hid.cpp: final HID registration anchor not found uniquely")
+hid_text = hid_text.replace(hid_registration_anchor, hid_registration_anchor + "\\n" + hid_register)
+hid_cpp.write_text(hid_text)
+
+print("Registered the previously unexported GetTouchScreenState<16> HLE symbol.")
+

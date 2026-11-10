@@ -6,6 +6,7 @@ on:
     paths:
       - 'games/p5s/game.cpp'
       - 'scripts/patch_p5s_runtime.py'
+      - 'scripts/verify_runtime_apk.sh'
       - '.github/workflows/runtime-integration.yml'
 
 permissions:

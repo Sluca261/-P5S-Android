@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""Apply small, auditable P5S-only adaptations to the pinned shared runtime."""
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+platform = root / "runtime/src/platform_android.cpp"
+text = platform.read_text()
+old = 'static bool has_data(const std::string& root) { return access((root + kDataProbe).c_str(), R_OK) == 0; }'
+new = """static bool has_data(const std::string& root) {
+    // P5S is loaded directly from the user's NSP/XCI (NX_NCE). In that mode the
+    // ExeFS is supplied by game_image.cpp, not by a pre-extracted /exefs folder.
+    const char* game_fd = std::getenv("NX_GAME_FD");
+    const char* keys = std::getenv("NX_KEYS");
+    if (game_fd && *game_fd && keys && *keys) return true;
+    return access((root + kDataProbe).c_str(), R_OK) == 0;
+}"""
+if text.count(old) != 1:
+    raise SystemExit("platform_android.cpp: expected exactly one has_data() definition")
+platform.write_text(text.replace(old, new))
+
+shaders = root / "runtime/src/nvn/nvn_shaders.cpp"
+text = shaders.read_text()
+old_include = """#include <memory>
+#include <mutex>
+
+#include <nx/runtime.h>"""
+new_include = """#include <memory>
+#include <mutex>
+#include <dlfcn.h>
+#include <unistd.h>
+
+#include <nx/runtime.h>"""
+if text.count(old_include) != 1:
+    raise SystemExit("nvn_shaders.cpp: runtime include block not found uniquely")
+text = text.replace(old_include, new_include)
+
+anchor = """bool read_whole(const std::string& path, std::string& out) {
+    FILE* f = plat::fopen_utf8(path, "rb");
+    if (!f) return false;
+    plat::fseek64(f, 0, SEEK_END);
+    int64_t size = plat::ftell64(f);
+    out.resize(size > 0 ? size_t(size) : 0);
+    bool ok = size >= 0 && plat::read_at(f, 0, out.data(), out.size()) == out.size();
+    std::fclose(f);
+    return ok;
+}
+"""
+addition = anchor + r'''
+
+bool write_whole(const std::string& path, const void* data, size_t size) {
+    FILE* f = plat::fopen_utf8(path, "wb");
+    if (!f) return false;
+    bool ok = std::fwrite(data, 1, size, f) == size;
+    std::fclose(f);
+    return ok;
+}
+
+// Translate a shader the first time the game asks for it. This is deliberately generic:
+// it consumes the Maxwell code/control block passed through NVN, not P5R-specific CPK data.
+bool translate_shader_on_demand(const std::string& hash, const uint8_t* code, uint32_t code_size,
+                                const uint8_t* control, std::string& spirv, std::string& resources) {
+    using HarnessMain = int (*)(int, const char**);
+    static void* library = dlopen("libspirvharness.so", RTLD_NOW);
+    static HarnessMain run = library
+        ? reinterpret_cast<HarnessMain>(dlsym(library, "spirv_harness_main"))
+        : nullptr;
+    if (!run) {
+        log("nvn: on-demand shader translator unavailable: %s", dlerror() ? dlerror() : "missing export");
+        return false;
+    }
+
+    const std::string base = plat::data_root() + "/shader_runtime";
+    const std::string input = base + "/input";
+    const std::string output = base + "/output";
+    const std::string shader_dir = plat::data_root() + "/spirv";
+    if (!plat::make_dirs(input) || !plat::make_dirs(output) || !plat::make_dirs(shader_dir)) return false;
+    if (!write_whole(input + "/code.bin", code, code_size) ||
+        !write_whole(input + "/ctrl.bin", control, 0x880)) return false;
+
+    std::string manifest = "id	name	stage	unused	unused	unused	unused	unused	unused	unused	hash	code	control
+";
+    manifest.append(10, '	');
+    manifest += hash + "	code.bin	ctrl.bin
+";
+    if (!write_whole(input + "/manifest.tsv", manifest.data(), manifest.size())) return false;
+
+    const char* args[] = {"--batch", input.c_str(), "--out", output.c_str(), "--jobs", "1", "--no-val"};
+    const int rc = run(7, args);
+    if (rc != 0) {
+        log("nvn: on-demand translation of %s failed (%d)", hash.c_str(), rc);
+        return false;
+    }
+
+    if (!read_whole(output + "/" + hash + ".spv", spirv) || spirv.empty() || spirv.size() % 4) {
+        log("nvn: translator produced no valid SPIR-V for %s", hash.c_str());
+        return false;
+    }
+    std::string result_table;
+    if (read_whole(output + "/results.tsv", result_table)) {
+        std::unordered_map<std::string, std::string> translated;
+        parse_results_tsv(result_table, translated);
+        auto it = translated.find(hash);
+        if (it != translated.end()) resources = it->second;
+    }
+    if (!write_whole(shader_dir + "/" + hash + ".spv", spirv.data(), spirv.size())) return false;
+
+    // Keep the translated SPIR-V cache; discard only temporary source and report files.
+    unlink((input + "/code.bin").c_str());
+    unlink((input + "/ctrl.bin").c_str());
+    unlink((input + "/manifest.tsv").c_str());
+    unlink((output + "/" + hash + ".spv").c_str());
+    unlink((output + "/results.tsv").c_str());
+    unlink((output + "/summary.txt").c_str());
+    return true;
+}
+'''
+if text.count(anchor) != 1:
+    raise SystemExit("nvn_shaders.cpp: read_whole() anchor not found uniquely")
+text = text.replace(anchor, addition)
+
+old_missing = '''    if (!read_whole(dir + hash + ".spv", bytes) || bytes.size() % 4 || bytes.empty()) {
+        log("nvn: shader %s (code %#x bytes, control %llx): no %s%s.spv", hash.c_str(), c.code_size,
+            (unsigned long long)control, dir.c_str(), hash.c_str());
+        if (std::getenv("NX_DUMP_SHADER_MISSES")) {  // for translating shaders the offline inventory missed
+            std::string out = plat::data_root() + "/shader_misses/";
+            plat::make_dirs(out);
+            if (FILE* f = plat::fopen_utf8(out + "code_" + hash + ".bin", "wb")) {
+                std::fwrite(code, 1, c.code_size, f);
+                std::fclose(f);
+            }
+            if (FILE* f = plat::fopen_utf8(out + "ctrl_" + hash + ".bin", "wb")) {
+                std::fwrite(ctrl, 1, 0x880, f);
+                std::fclose(f);
+            }
+        }
+        return nullptr;
+    }'''
+new_missing = '''    if (!read_whole(dir + hash + ".spv", bytes) || bytes.size() % 4 || bytes.empty()) {
+        std::string translated_resources;
+        if (translate_shader_on_demand(hash, code, c.code_size, ctrl, bytes, translated_resources)) {
+            if (!translated_resources.empty()) k.resources[hash] = translated_resources;
+            log("nvn: shader %s translated and cached on demand (%zu bytes)", hash.c_str(), bytes.size());
+        } else {
+            log("nvn: shader %s (code %#x bytes, control %llx): no usable SPIR-V cache", hash.c_str(), c.code_size,
+                (unsigned long long)control);
+            if (std::getenv("NX_DUMP_SHADER_MISSES")) {
+                std::string out = plat::data_root() + "/shader_misses/";
+                plat::make_dirs(out);
+                write_whole(out + "code_" + hash + ".bin", code, c.code_size);
+                write_whole(out + "ctrl_" + hash + ".bin", ctrl, 0x880);
+            }
+            return nullptr;
+        }
+    }'''
+if text.count(old_missing) != 1:
+    raise SystemExit("nvn_shaders.cpp: shader cache miss block not found uniquely")
+text = text.replace(old_missing, new_missing)
+shaders.write_text(text)
+print("Applied P5S runtime adaptations: NSP-backed data root and generic on-demand Maxwell shader translation.")

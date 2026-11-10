@@ -2,13 +2,15 @@
 
 Projeto experimental de pesquisa para avaliar a viabilidade técnica de um port nativo de Persona 5 Strikers para Android.
 
-## Estado atual
+## Estado atual — 10/11/2026
 
-O aplicativo possui uma base Android em Java/C++, inicialização Vulkan, apresentação contínua em uma superfície Android, pipeline gráfica 3D, buffer de profundidade, iluminação direcional, textura de teste e carregamento de shaders SPIR-V empacotados no APK.
+O projeto já integra ao APK Android um runtime ARM64 compartilhado, compilado com execução NCE, carregamento de contêiner NSP/XCI, suporte a chaves locais, backend NVN/Vulkan e tradutor Maxwell→SPIR-V sob demanda. O launcher encaminha o descritor do arquivo e os caminhos privados das chaves ao NativeActivity. O runtime também valida o Title ID-base de Persona 5 Strikers, tenta carregar módulos opcionais `subsdk1` a `subsdk9` e registra o Build ID do executável e uma amostra limitada de importações não resolvidas para orientar a compatibilidade.
 
-A etapa atual amplia o carregador Wavefront OBJ para aceitar bibliotecas MTL simples com cores difusas `Kd`, grupos `usemtl`, coordenadas UV e mapas `map_Kd`. Os mapas difusos agora são carregados como imagens Vulkan independentes: cada material possui seu próprio `VkImage`, memória, `VkImageView`, `VkSampler` e entrada em um array de descritores combinados. O OBJ transporta um índice de material por vértice, e o shader seleciona a textura correspondente sem remapear as UVs para regiões de atlas. Os arquivos de textura são `ruby_texture.ppm` e `azure_texture.ppm`. O parser também aceita posições, normais, faces triangulares ou poligonais e índices positivos/negativos; triangula polígonos, calcula normais ausentes, centraliza e normaliza a escala do modelo. A leitura dos arquivos é limitada e validada. O modelo e os materiais de diagnóstico são originais e estão em `app/src/main/assets/diagnostic_model.obj` e `app/src/main/assets/diagnostic_materials.mtl`.
+A compilação integrada mais recente, [42765423050](https://github.com/Sluca261/-P5S-Android/actions/runs/42765423050), foi concluída com sucesso: runtime ARM64 compilado, tradutor nativo gerado, APK empacotado e símbolos essenciais verificados. Isso comprova a integração técnica e o empacotamento, **não** o funcionamento do jogo.
 
-**Isto ainda não é um port jogável de Persona 5 Strikers.** A geometria, textura e shaders presentes são recursos de teste; não há implementação do formato de dados, motor ou conteúdo proprietário do jogo.
+A tela e o modelo Vulkan de diagnóstico continuam disponíveis para testes independentes. Eles não representam gráficos, cenas ou controles do Persona 5 Strikers. O adaptador específico de P5S ainda não possui hooks ou offsets de jogo validados. A próxima etapa é obter evidências de inicialização com uma cópia local do jogo, identificar incompatibilidades por meio dos logs e avançar até uma cena real e combate interativo.
+
+**O projeto ainda não é uma versão jogável de Persona 5 Strikers.** Não há comprovação de boot completo, primeira cena, combate, áudio ou salvamento.
 
 ## Limites e uso responsável
 

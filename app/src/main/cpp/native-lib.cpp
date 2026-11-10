@@ -1363,16 +1363,37 @@ Java_com_p5s_android_MainActivity_configureRuntime(JNIEnv* env, jobject,
     const char* keys = keysPath ? env->GetStringUTFChars(keysPath, nullptr) : nullptr;
     const char* titleKeys = titleKeysPath ? env->GetStringUTFChars(titleKeysPath, nullptr) : nullptr;
     struct stat gameStat {};
-    // NSP/XCI parsing performs random-access reads. Some Android document providers
-    // return pipe-backed descriptors, which pass F_GETFD but cannot be parsed with pread().
-    const bool gameReadable = gameFd >= 0 &&
-                              fcntl(gameFd, F_GETFD) != -1 &&
-                              fstat(gameFd, &gameStat) == 0 &&
-                              gameStat.st_size > 0 &&
-                              lseek(gameFd, 0, SEEK_CUR) != -1 &&
-                              lseek(gameFd, 0, SEEK_SET) != -1;
-    bool valid = gameReadable && name && *name && keys && *keys &&
-                 access(keys, R_OK) == 0 &&
+    // The runtime needs a regular, seekable file and a matching container signature.
+    // Validate the exact descriptor that will be passed to the runtime; do not rely
+    // only on the display name or on a separate SAF stream that could refer to other bytes.
+    bool gameReadable = gameFd >= 0 &&
+                        fcntl(gameFd, F_GETFD) != -1 &&
+                        fstat(gameFd, &gameStat) == 0 &&
+                        S_ISREG(gameStat.st_mode) &&
+                        gameStat.st_size > 0 &&
+                        lseek(gameFd, 0, SEEK_CUR) != -1 &&
+                        lseek(gameFd, 0, SEEK_SET) != -1;
+
+    bool validContainerHeader = false;
+    if (gameReadable && name && *name) {
+        std::string lowerName(name);
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const bool isNsp = lowerName.size() >= 4 &&
+                           lowerName.compare(lowerName.size() - 4, 4, ".nsp") == 0;
+        const bool isXci = lowerName.size() >= 4 &&
+                           lowerName.compare(lowerName.size() - 4, 4, ".xci") == 0;
+        const off_t headerOffset = isXci ? 0x100 : 0;
+        char magic[4] = {};
+        const char* expected = isXci ? "HEAD" : "PFS0";
+        const ssize_t bytesRead = (isNsp || isXci)
+                ? pread(gameFd, magic, sizeof(magic), headerOffset) : -1;
+        validContainerHeader = bytesRead == static_cast<ssize_t>(sizeof(magic)) &&
+                               std::memcmp(magic, expected, sizeof(magic)) == 0;
+    }
+
+    bool valid = gameReadable && validContainerHeader && name && *name &&
+                 keys && *keys && access(keys, R_OK) == 0 &&
                  (!titleKeysPath || (titleKeys && *titleKeys && access(titleKeys, R_OK) == 0));
     if (valid) {
         const std::string fdValue = std::to_string(gameFd);

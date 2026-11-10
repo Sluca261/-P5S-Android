@@ -231,3 +231,30 @@ print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell 
 # Rebuild trigger: verifier now checks launcher JNI bridge and defined ELF exports.
 
 # Rebuild trigger: collect ELF export diagnostics for NativeAOT and launcher JNI.
+
+# Report the actual PFS0/ExeFS main build ID on-device. P5S revisions differ by region/update,
+# and this log is needed to choose any future version-specific compatibility work safely.
+main_cpp = root / "runtime/src/main.cpp"
+text = main_cpp.read_text()
+main_anchor = '''    if (nso.size() < 2) fatal("failed to load base modules (main and sdk required)");
+
+    if (const char* want = game::kInfo.main_build_id) {'''
+main_replacement = '''    if (nso.size() < 2) fatal("failed to load base modules (main and sdk required)");
+
+    // Record the exact game executable revision at startup. P5S dumps can vary by region/update;
+    // this lets us identify the user's build without exporting or inspecting their game files.
+    {
+        std::string build;
+        for (uint8_t b : nso[0]->build_id) {
+            char hex[3];
+            std::snprintf(hex, sizeof hex, "%02X", b);
+            build += hex;
+        }
+        log("nce: game %s (title %016llx), main build ID %s",
+            game::kInfo.title, (unsigned long long)game::kInfo.program_id, build.c_str());
+    }
+
+    if (const char* want = game::kInfo.main_build_id) {'''
+if text.count(main_anchor) != 1:
+    raise SystemExit("main.cpp: build-ID diagnostic insertion point not found uniquely")
+main_cpp.write_text(text.replace(main_anchor, main_replacement))

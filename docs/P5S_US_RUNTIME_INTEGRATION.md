@@ -23,7 +23,7 @@ The Android ARM64 runtime integration is now connected to the APK build:
 4. The launcher passes the locally selected NSP/XCI file descriptor and private `prod.keys` path to the NativeActivity runtime. The runtime's game-image path opens the container in place and checks the base Title ID against the P5S adapter.
 5. The standalone NativeActivity export wrapper and both native libraries are checked in the APK before artifact publication.
 
-The CI run [42758709005](https://github.com/Sluca261/-P5S-Android/actions/runs/42758709005) completed successfully. Its APK artifact passed static checks for ARM64 ELF architecture, the NativeActivity entry point, and the shader translator export.
+The CI run [42765423050](https://github.com/Sluca261/-P5S-Android/actions/runs/42765423050) completed successfully. Its APK artifact passed static checks for ARM64 ELF architecture, the NativeActivity entry point, and the shader translator export.
 
 **This proves compilation, packaging and static symbol validation only. It does not prove that P5S boots or is playable.** No real P5S NSP/XCI has been used in CI, and the APK has not yet been validated through the game's boot sequence on the target phone.
 
@@ -35,8 +35,9 @@ The public P5R reference is a reusable architecture, not a drop-in P5S port. The
 2. Confirm that P5S's ARM64 executable and its imported Switch services are supported by the shared runtime.
 3. Capture and diagnose first-boot runtime logs; resolve missing services, imports, filesystem assumptions or memory mappings based on evidence.
 4. Validate P5S's NVN shader/control data and Maxwell-to-SPIR-V translation on the target Adreno/Vulkan driver. The on-demand translator is integrated, but P5S shader coverage is not yet demonstrated.
-5. Validate video/cutscenes, AAudio, touch and physical controls, save/load and stability.
-6. Progress through observable milestones: runtime boot, first rendered game scene, title/menu, interactive combat, then full gameplay sessions.
+5. Use the startup diagnostics to inspect the exact P5S main Build ID and up to 64 unresolved dynamic imports; the loader now reports these with the requesting module name. Optional base-game `subsdk1`–`subsdk9` modules are loaded when present, while `subsdk0` (the Switch NVN driver) remains excluded.
+6. Validate video/cutscenes, AAudio, touch and physical controls, save/load and stability.
+7. Progress through observable milestones: runtime boot, first rendered game scene, title/menu, interactive combat, then full gameplay sessions.
 
 No P5R-specific hooks, offsets or shader caches should be copied into P5S without evidence from the matching P5S executable.
 

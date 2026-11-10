@@ -193,5 +193,15 @@ if platform_text.count(entry) != 1:
     raise SystemExit("platform_android.cpp: NativeActivity entry point not found uniquely")
 platform.write_text(platform_text.replace(entry, exported_entry))
 
+# Keep the NativeActivity entry point in the ELF dynamic symbol table. Visibility
+# alone did not survive this target's link, so force the symbol into the link.
+cmake = root / "CMakeLists.txt"
+cmake_text = cmake.read_text()
+link_anchor = '    target_link_libraries(${NX_GAME} PRIVATE ${NX_GAME_LIBS} android log aaudio mediandk)'
+link_export = link_anchor + '\n    target_link_options(${NX_GAME} PRIVATE -u ANativeActivity_onCreate)'
+if cmake_text.count(link_anchor) != 1:
+    raise SystemExit("CMakeLists.txt: Android runtime link block not found uniquely")
+cmake.write_text(cmake_text.replace(link_anchor, link_export))
+
 
 print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell shader translation, and exported NativeActivity entry point.")

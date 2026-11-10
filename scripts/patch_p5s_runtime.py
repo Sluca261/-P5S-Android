@@ -229,3 +229,5 @@ print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell 
 # Rebuild trigger: verifier pipefail fix in verify_runtime_apk.sh.
 
 # Rebuild trigger: verifier now checks launcher JNI bridge and defined ELF exports.
+
+# Rebuild trigger: collect ELF export diagnostics for NativeAOT and launcher JNI.

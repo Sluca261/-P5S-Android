@@ -1,3 +1,4 @@
+# Rebuild trigger: include expanded ELF symbol diagnostics in the APK verifier.
 #!/usr/bin/env python3
 """Apply small, auditable P5S-only adaptations to the pinned shared runtime."""
 from pathlib import Path

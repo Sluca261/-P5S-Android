@@ -188,8 +188,10 @@ platform_text = platform.read_text()
 # JNIEXPORT expands to default visibility on Android. The upstream entry point
 # already carries it; assert that contract rather than rewriting a non-existent form.
 entry = 'extern "C" JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
+exported_entry = 'extern "C" JNIEXPORT __attribute__((visibility("default"))) void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
 if platform_text.count(entry) != 1:
-    raise SystemExit("platform_android.cpp: exported NativeActivity entry point not found uniquely")
+    raise SystemExit("platform_android.cpp: NativeActivity entry point not found uniquely")
+platform.write_text(platform_text.replace(entry, exported_entry))
 
 
 print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell shader translation, and exported NativeActivity entry point.")

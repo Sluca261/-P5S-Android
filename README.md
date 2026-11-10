@@ -6,7 +6,7 @@ Projeto experimental de pesquisa para avaliar a viabilidade técnica de um port 
 
 O projeto já integra ao APK Android um runtime ARM64 compartilhado, compilado com execução NCE, carregamento de contêiner NSP/XCI, suporte a chaves locais, backend NVN/Vulkan e tradutor Maxwell→SPIR-V sob demanda. O launcher encaminha o descritor do arquivo e os caminhos privados das chaves ao NativeActivity. O runtime também valida o Title ID-base de Persona 5 Strikers, tenta carregar módulos opcionais `subsdk1` a `subsdk9` e registra o Build ID do executável e uma amostra limitada de importações não resolvidas para orientar a compatibilidade.
 
-A compilação integrada mais recente, [42765423050](https://github.com/Sluca261/-P5S-Android/actions/runs/42765423050), foi concluída com sucesso: runtime ARM64 compilado, tradutor nativo gerado, APK empacotado e símbolos essenciais verificados. Isso comprova a integração técnica e o empacotamento, **não** o funcionamento do jogo.
+A compilação integrada mais recente, [42769913484](https://github.com/Sluca261/-P5S-Android/actions/runs/42769913484), no commit `b58351051bd3957dec93beb13d65e68f96f79626`, foi concluída com sucesso: runtime ARM64 compilado, tradutor nativo gerado, APK empacotado e símbolos essenciais verificados. Isso comprova a integração técnica e o empacotamento, **não** o funcionamento do jogo.
 
 A tela e o modelo Vulkan de diagnóstico continuam disponíveis para testes independentes. Eles não representam gráficos, cenas ou controles do Persona 5 Strikers. O adaptador específico de P5S ainda não possui hooks ou offsets de jogo validados. A próxima etapa é obter evidências de inicialização com uma cópia local do jogo, identificar incompatibilidades por meio dos logs e avançar até uma cena real e combate interativo.
 
@@ -72,11 +72,11 @@ Foi adicionada uma definição nativa isolada para reconhecer o Title ID base de
 
 ## Adaptador inicial do runtime para a versão americana
 
-O contrato mínimo do jogo para uma futura integração do runtime compartilhado está em `runtime-adapter/games/p5s/game.cpp`. Ele registra o Title ID-base americano e mantém deliberadamente vazios os callbacks específicos, sem importar offsets ou hooks de Persona 5 Royal. Isso ainda não está conectado ao CMake do aplicativo e **não torna o APK jogável**. Os requisitos de integração e validação estão em [P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md).
+O contrato mínimo do jogo para uma futura integração do runtime compartilhado está em `runtime-adapter/games/p5s/game.cpp`. Ele registra o Title ID-base americano e mantém deliberadamente vazios os callbacks específicos, sem importar offsets ou hooks de Persona 5 Royal. A integração ao runtime compartilhado já é feita pelo workflow de CI, mas os callbacks específicos continuam vazios e **o APK ainda não é jogável**. Os requisitos de integração e validação estão em [P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md).
 
 ## Integração do runtime ARM64 (2026-11-10)
 
-A integração experimental do runtime compartilhado foi conectada ao APK: o CI compila `libp5s.so` com NCE, gera o tradutor ARM64 Maxwell→SPIR-V e empacota as bibliotecas no aplicativo. A execução passou pela validação estática de arquitetura ELF e dos símbolos NativeActivity e do tradutor no workflow [42758709005](https://github.com/Sluca261/-P5S-Android/actions/runs/42758709005).
+A integração experimental do runtime compartilhado foi conectada ao APK: o CI compila `libp5s.so` com NCE, gera o tradutor ARM64 Maxwell→SPIR-V e empacota as bibliotecas no aplicativo. A execução mais recente passou pela validação estática de arquitetura ELF e dos símbolos NativeActivity, tradutor e ponte JNI no workflow [42769913484](https://github.com/Sluca261/-P5S-Android/actions/runs/42769913484).
 
 **Importante:** isso comprova build e empacotamento, não compatibilidade nem jogabilidade. Ainda não há comprovação de boot de um dump real de Persona 5 Strikers, primeira cena renderizada, combate, áudio ou salvamento. O adaptador P5S permanece sem hooks específicos até que o executável correto seja identificado e analisado. Consulte [docs/P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md) para os marcos e limitações atuais.
 

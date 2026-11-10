@@ -280,26 +280,52 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     // Exporta somente os registros locais do Android relacionados ao runtime P5S.
     // Nada é enviado automaticamente: o usuário escolhe explicitamente o destino no compartilhamento.
+    private void appendRuntimeLogFile(StringBuilder output, java.io.File file, int maxChars)
+            throws java.io.IOException {
+        if (file == null || !file.isFile() || !file.canRead()) return;
+        output.append("\\n--- ").append(file.getAbsolutePath()).append(" ---\\n");
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(new java.io.FileInputStream(file),
+                        java.nio.charset.StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (output.length() + line.length() + 1 > maxChars) {
+                    output.append("\\n[diagnóstico truncado para manter o compartilhamento leve]\\n");
+                    return;
+                }
+                output.append(line).append('\\n');
+            }
+        }
+    }
+
+    private void appendRuntimeLogsAtRoot(StringBuilder output, String root, int maxChars)
+            throws java.io.IOException {
+        if (root == null || root.isEmpty()) return;
+        java.io.File directory = new java.io.File(root);
+        appendRuntimeLogFile(output, new java.io.File(directory, "nx.log"), maxChars);
+        appendRuntimeLogFile(output, new java.io.File(directory, "nx.log.prev"), maxChars);
+    }
+
     private void shareRuntimeLogs() {
         try {
+            final int maxChars = 180000;
+            StringBuilder output = new StringBuilder();
             Process process = new ProcessBuilder(
                     "logcat", "-d", "-v", "threadtime", "-t", "2000",
                     "p5s:I", "AndroidRuntime:E", "DEBUG:E", "libc:F", "*:S")
                     .redirectErrorStream(true)
                     .start();
 
-            StringBuilder output = new StringBuilder();
             try (java.io.BufferedReader reader = new java.io.BufferedReader(
                     new java.io.InputStreamReader(process.getInputStream(),
                             java.nio.charset.StandardCharsets.UTF_8))) {
                 String line;
-                final int maxChars = 180000;
                 while ((line = reader.readLine()) != null) {
                     if (output.length() + line.length() + 1 > maxChars) {
-                        output.append("\n[diagnóstico truncado para manter o compartilhamento leve]");
+                        output.append("\\n[logcat truncado para manter o compartilhamento leve]\\n");
                         break;
                     }
-                    output.append(line).append('\n');
+                    output.append(line).append('\\n');
                 }
             }
 
@@ -307,6 +333,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 process.destroyForcibly();
                 throw new IllegalStateException("A leitura do logcat excedeu o tempo limite.");
             }
+
+            // The shared runtime writes its detailed startup diagnostics to nx.log
+            // under the selected data root. Include both current and previous runs.
+            java.io.File rootFile = new java.io.File(getFilesDir(), "data_root.txt");
+            if (rootFile.isFile()) {
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(new java.io.FileInputStream(rootFile),
+                                java.nio.charset.StandardCharsets.UTF_8))) {
+                    appendRuntimeLogsAtRoot(output, reader.readLine(), maxChars);
+                }
+            }
+            appendRuntimeLogsAtRoot(output,
+                    getExternalFilesDir(null) == null ? null : getExternalFilesDir(null).getAbsolutePath(),
+                    maxChars);
+            appendRuntimeLogsAtRoot(output,
+                    "/storage/emulated/0/Persona 5 Strikers", maxChars);
+
             if (output.length() == 0) {
                 output.append("Nenhum registro P5S ou erro de inicialização foi encontrado no buffer local do Android.");
             }

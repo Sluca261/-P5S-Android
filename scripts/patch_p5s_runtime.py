@@ -445,7 +445,8 @@ struct P5SHidServer : Service {
 ServiceRegistrar g_p5s_hid_registrar("hid", [] { return std::make_shared<P5SHidServer>(); });
 }  // namespace
 """
-if ipc_text.count(registrar_anchor) !== 1) throw new Error("register_service anchor mismatch");
+if ipc_text.count(registrar_anchor) != 1:
+    raise SystemExit("ipc.cpp: register_service insertion point not found uniquely")
 ipc_text = ipc_text.replace(registrar_anchor, registrar_new);
 handle_anchor = """uint32_t Service::handle(IpcCtx& ctx) {
     auto it = cmds.find(ctx.cmd);"""

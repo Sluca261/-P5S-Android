@@ -1352,6 +1352,7 @@ Java_com_p5s_android_MainActivity_renderVulkanLoop(JNIEnv* env, jobject, jobject
 
 #include <cstdlib>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -1361,8 +1362,17 @@ Java_com_p5s_android_MainActivity_configureRuntime(JNIEnv* env, jobject,
     const char* name = gameName ? env->GetStringUTFChars(gameName, nullptr) : nullptr;
     const char* keys = keysPath ? env->GetStringUTFChars(keysPath, nullptr) : nullptr;
     const char* titleKeys = titleKeysPath ? env->GetStringUTFChars(titleKeysPath, nullptr) : nullptr;
-    bool valid = gameFd >= 0 && name && *name && keys && *keys &&
-                 fcntl(gameFd, F_GETFD) != -1 && access(keys, R_OK) == 0 &&
+    struct stat gameStat {};
+    // NSP/XCI parsing performs random-access reads. Some Android document providers
+    // return pipe-backed descriptors, which pass F_GETFD but cannot be parsed with pread().
+    const bool gameReadable = gameFd >= 0 &&
+                              fcntl(gameFd, F_GETFD) != -1 &&
+                              fstat(gameFd, &gameStat) == 0 &&
+                              gameStat.st_size > 0 &&
+                              lseek(gameFd, 0, SEEK_CUR) != -1 &&
+                              lseek(gameFd, 0, SEEK_SET) != -1;
+    bool valid = gameReadable && name && *name && keys && *keys &&
+                 access(keys, R_OK) == 0 &&
                  (!titleKeysPath || (titleKeys && *titleKeys && access(titleKeys, R_OK) == 0));
     if (valid) {
         const std::string fdValue = std::to_string(gameFd);

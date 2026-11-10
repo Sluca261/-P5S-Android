@@ -23,7 +23,7 @@ platform.write_text(text.replace(old, new))
 image = root / "runtime/src/game_image.cpp"
 text = image.read_text()
 if '#include <nx/game.h>' not in text:
-    text = text.replace('#include <nx/runtime.h>', '#include <nx/game.h>\\n#include <nx/runtime.h>', 1)
+    text = text.replace('#include <nx/runtime.h>', '#include <nx/game.h>\n#include <nx/runtime.h>', 1)
 old_open = '    if (!g_image) fatal("game: %s could not be read: %s", shown.c_str(), err.c_str());'
 new_open = old_open + '''
     const uint64_t expected_title = game::kInfo.program_id & ~0xFFFull;

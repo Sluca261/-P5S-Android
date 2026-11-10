@@ -12,6 +12,8 @@ A tela e o modelo Vulkan de diagnóstico continuam disponíveis para testes inde
 
 **O projeto ainda não é uma versão jogável de Persona 5 Strikers.** Não há comprovação de boot completo, primeira cena, combate, áudio ou salvamento.
 
+O workflow `Android launcher-only debug APK` gera apenas um APK do launcher/diagnóstico, sem as bibliotecas do runtime integrado. Seu artefato é identificado como `P5S-Android-launcher-only-debug`. Para avaliar a integração nativa, considere somente o artefato `P5S-Android-runtime-debug` publicado pelo workflow `P5S shared runtime integration`; mesmo esse APK ainda não foi validado em execução real do jogo.
+
 ## Limites e uso responsável
 
 - O repositório não inclui assets, executáveis, músicas ou código proprietário do jogo.

@@ -19,6 +19,22 @@ if text.count(old) != 1:
     raise SystemExit("platform_android.cpp: expected exactly one has_data() definition")
 platform.write_text(text.replace(old, new))
 
+# Reject a wrong NSP/XCI before the NCE loader starts executing its ExeFS.
+image = root / "runtime/src/game_image.cpp"
+text = image.read_text()
+if '#include <nx/game.h>' not in text:
+    text = text.replace('#include <nx/runtime.h>', '#include <nx/game.h>\\n#include <nx/runtime.h>', 1)
+old_open = '    if (!g_image) fatal("game: %s could not be read: %s", shown.c_str(), err.c_str());'
+new_open = old_open + '''
+    const uint64_t expected_title = game::kInfo.program_id & ~0xFFFull;
+    const uint64_t actual_title = g_image->title_id() & ~0xFFFull;
+    if (actual_title != expected_title)
+        fatal("game: wrong Title ID %016llx (expected %016llx)",
+              (unsigned long long)actual_title, (unsigned long long)expected_title);'''
+if text.count(old_open) != 1:
+    raise SystemExit("game_image.cpp: image-open validation point not found uniquely")
+image.write_text(text.replace(old_open, new_open))
+
 shaders = root / "runtime/src/nvn/nvn_shaders.cpp"
 text = shaders.read_text()
 old_include = """#include <memory>

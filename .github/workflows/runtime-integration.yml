@@ -9,6 +9,13 @@ on:
       - 'scripts/verify_runtime_apk.sh'
       - 'app/src/main/java/com/p5s/android/MainActivity.java'
       - 'app/src/main/cpp/native-lib.cpp'
+      - 'app/src/main/AndroidManifest.xml'
+      - 'app/build.gradle'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'app/src/main/shaders/**'
+      - 'runtime-adapter/**'
       - '.github/workflows/runtime-integration.yml'
 
 permissions:

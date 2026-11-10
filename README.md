@@ -56,3 +56,8 @@ A camada unificada agora diferencia o estado mantido de cada botão dos eventos 
 ## Avaliação de viabilidade do port nativo
 
 A análise de arquitetura, requisitos ainda não validados e etapas necessárias para uma Alpha executável está documentada em [`docs/PORT_FEASIBILITY.md`](docs/PORT_FEASIBILITY.md). O projeto permanece experimental: ainda não carrega nem executa o Persona 5 Strikers.
+
+
+## Auditoria de integração do runtime P5R
+
+A auditoria da arquitetura de referência, dos pontos específicos de Persona 5 Royal e das diferenças de build está em [`docs/P5R_RUNTIME_AUDIT.md`](docs/P5R_RUNTIME_AUDIT.md). O runtime de referência não é um drop-in: P5S exige adaptador e importador próprios; os hooks e validadores específicos de P5R não podem ser reutilizados sem análise.

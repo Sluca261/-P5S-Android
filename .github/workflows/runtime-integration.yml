@@ -116,6 +116,9 @@ jobs:
           glslangValidator -V app/src/main/shaders/triangle.frag -o app/build/generated/shaders/triangle.frag.spv
           gradle --no-daemon assembleDebug
 
+      - name: Verify APK runtime libraries and native entry points
+        run: bash scripts/verify_runtime_apk.sh
+
       - name: Publish P5S Android APK
         uses: actions/upload-artifact@v4
         with:

@@ -644,6 +644,11 @@ Java_com_p5s_android_MainActivity_getVulkanInfo(JNIEnv* env, jobject) {
     std::vector<VkPhysicalDevice> devices(count);
     vkEnumeratePhysicalDevices(instance, &count, devices.data());
     std::string output = "Vulkan inicializado com sucesso.\nDispositivos encontrados: " + std::to_string(count);
+    output += "\\n\\nTítulo-alvo: Persona 5 Strikers";
+    output += "\\nTitle ID base: 0100801011C3E000";
+    output += std::string("\\nBuild ID de referência (1.0.0): ") + p5s::identity::kKnownBaseBuildId;
+    output += "\\nIdentidade cadastrada; o arquivo selecionado ainda não é inspecionado nem executado.";
+    (void)p5s::identity::isPersona5StrikersProgram(p5s::identity::kBaseProgramId);
     for (uint32_t i = 0; i < count; ++i) {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(devices[i], &properties);

@@ -53,3 +53,23 @@ O runtime ARM64 e o APK integrado foram compilados com sucesso no workflow [P5S 
 Foi atualizado o script de adaptação do runtime para incluir rastreamento limitado (até 128 solicitações IPC) de chamadas ao serviço `hid`, registrando ID do comando, tipo da mensagem, tamanho dos dados e quantidade de descritores/objetos. Também serão registradas as primeiras 32 entradas na HLE `GetTouchScreenState`, com o endereço de saída e o contador de amostragem.
 
 A instrumentação é somente observacional: não registra conteúdo sensível dos buffers, não inventa respostas, não altera o comportamento do serviço e não conecta ainda os controles Android ao runtime. O objetivo é descobrir se o processo consulta o serviço IPC `hid` antes do erro e quais IDs de comando aparecem, além de confirmar quantas vezes a rotina HLE de toque é chamada. O workflow de integração é disparado pela alteração do script; o próximo teste no aparelho deverá usar o APK resultante e compartilhar o novo `nx.log` completo.
+
+
+## Quarta execução (12:41) e identificação dos comandos HID
+
+A quarta execução repetiu o mesmo padrão: NSP e módulos carregados, primeiro frame apresentado, áudio e save inicializados e abort aproximadamente 1,5 s depois. Antes do encerramento, o log registrou duas requisições ao serviço `hid`:
+
+- comando 101, mensagem tipo 6, 8 bytes de dados;
+- comando 128, mensagem tipo 6, 16 bytes de dados.
+
+A tabela de serviços HID do Switchbrew identifica 101 como `GetSupportedNpadStyleSet` (recebe PID-descriptor e AppletResourceUserId; retorna `u32 NpadStyleTag`) e 128 como `SetNpadHandheldActivationMode` (recebe PID, AppletResourceUserId e modo `s64`; sem saída). Isso explica os tamanhos observados depois do cabeçalho CMIF e dos descritores HIPC. Referências: [HID services — Switchbrew](https://switchbrew.org/wiki/HID_services) e [IHidServer — Ryujinx](https://git.axenov.dev/Museum/ryujinx/src/commit/0c87bf9ea4b0655fc6b90b4ab20e93f237e7549b/Ryujinx.HLE/HOS/Services/Hid/IHidServer.cs).
+
+### Correção implementada
+
+O script de adaptação agora registra um serviço `hid` mínimo em vez de deixar esses dois comandos caírem no stub genérico:
+
+- `101`: retorna `NpadStyleTag_NpadFullKey` (bit 0), coerente com o controle de jogador 1 que a HLE já expõe;
+- `128`: aceita a configuração de modo portátil sem erro, registrando o valor recebido; o runtime ainda não simula pareamento real de Joy-Con;
+- `GetTouchScreenState`: inicializa integralmente os 0x290 bytes de `TouchScreenState<16>`, com contador zero e sem contatos, evitando que campos/reservas contenham dados antigos.
+
+A mudança é intencionalmente limitada aos comandos observados. Não implementa todos os métodos do serviço HID, não injeta toques fictícios e não afirma que a falha 0x52CA foi resolvida. O próximo APK precisa confirmar no log que os comandos 101 e 128 deixaram de aparecer como stub e se a chamada HLE de toque retorna sem abort. O build do APK deve ser associado ao commit exato do repositório antes de atribuir causalidade.

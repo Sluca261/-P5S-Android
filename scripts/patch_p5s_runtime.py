@@ -533,10 +533,12 @@ hid_register_16 = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchS
 hid_register_1 = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState1);'
 if hid_text.count(hid_register_16) != 1:
     raise SystemExit("hle_hid.cpp: expected templated GetTouchScreenState<16> HLE export is missing or duplicated")
-if hid_text.count(hid_register_1) != 1:
-    raise SystemExit("hle_hid.cpp: expected templated GetTouchScreenState<1> HLE export is missing or duplicated")
+if hid_text.count(hid_register_1) != 0:
+    raise SystemExit("hle_hid.cpp: templated GetTouchScreenState<1> HLE export already exists unexpectedly")
+hid_text = hid_text.replace(hid_register_16, hid_register_16 + "\\n" + hid_register_1)
+hid_cpp.write_text(hid_text)
 
-print("Verified the existing templated GetTouchScreenState<16> HLE export; no duplicate export added.")
+print("Registered both templated GetTouchScreenState<16> and the P5S-observed <1> specialization.")
 
 
 # Rebuild trigger: validate GetTouchScreenState output against the guest VM map before writing.

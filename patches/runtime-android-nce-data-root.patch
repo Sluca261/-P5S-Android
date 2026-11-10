@@ -1,8 +1,9 @@
 diff --git a/runtime/src/platform_android.cpp b/runtime/src/platform_android.cpp
 --- a/runtime/src/platform_android.cpp
 +++ b/runtime/src/platform_android.cpp
-@@ -245,7 +245,14 @@
- static const char* const kDataProbe = "/exefs/main";
+@@ -674,7 +674,14 @@
+ #if NX_NCE
+ static const char* const kDataProbe = "/exefs/main";  // native execution: the player's own exefs
  #else
  static const char* const kDataProbe = "/analysis/main.bin";
  #endif
@@ -15,3 +16,5 @@ diff --git a/runtime/src/platform_android.cpp b/runtime/src/platform_android.cpp
 +    if (game_fd && *game_fd && keys && *keys) return true;
 +    return access((root + kDataProbe).c_str(), R_OK) == 0;
 +}
+ 
+ extern "C" void android_main(android_app* app) {

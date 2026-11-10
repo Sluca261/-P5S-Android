@@ -225,3 +225,5 @@ void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t siz
 """)
 
 print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell shader translation, and exported NativeActivity entry point.")
+
+# Rebuild trigger: verifier pipefail fix in verify_runtime_apk.sh.

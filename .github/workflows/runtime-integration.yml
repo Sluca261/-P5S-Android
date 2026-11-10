@@ -77,6 +77,28 @@ jobs:
       - name: Compile shared runtime and P5S adapter
         run: cmake --build build-p5s-runtime --target p5s --parallel 2
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Package native runtime and build APK
+        run: |
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp build-p5s-runtime/libp5s.so app/src/main/jniLibs/arm64-v8a/libp5s.so
+          sudo apt-get install -y -qq glslang-tools
+          mkdir -p app/build/generated/shaders
+          glslangValidator -V app/src/main/shaders/triangle.vert -o app/build/generated/shaders/triangle.vert.spv
+          glslangValidator -V app/src/main/shaders/triangle.frag -o app/build/generated/shaders/triangle.frag.spv
+          gradle --no-daemon assembleDebug
+
+      - name: Publish P5S Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: P5S-Android-runtime-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
       - name: Publish runtime integration library
         uses: actions/upload-artifact@v4
         with:

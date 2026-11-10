@@ -287,7 +287,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             Uri gameUri = Uri.parse(gameUriText);
             pfd = getContentResolver().openFileDescriptor(gameUri, "r");
             if (pfd == null) throw new IllegalStateException("Não foi possível abrir o jogo.");
-            int fd = pfd.detachFd();
             java.io.File keysCopy = new java.io.File(getFilesDir(), "prod.keys");
             try (InputStream in = getContentResolver().openInputStream(selectedKeysUri);
                  java.io.FileOutputStream out = new java.io.FileOutputStream(keysCopy)) {
@@ -297,6 +296,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
                 out.getFD().sync();
             }
+            // Transfer ownership of the game descriptor only after every other preparation
+            // step succeeds. Until detachFd(), the ParcelFileDescriptor closes it on failure.
+            int fd = pfd.detachFd();
             configureRuntime(fd, settings.getString("game_name", "game.nsp"), keysCopy.getAbsolutePath());
             startActivity(new Intent(this, android.app.NativeActivity.class));
         } catch (Exception e) {

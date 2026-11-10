@@ -1,7 +1,7 @@
 diff --git a/runtime/src/platform_android.cpp b/runtime/src/platform_android.cpp
 --- a/runtime/src/platform_android.cpp
 +++ b/runtime/src/platform_android.cpp
-@@ -674,7 +674,14 @@
+@@ -673,8 +673,15 @@
  #if NX_NCE
  static const char* const kDataProbe = "/exefs/main";  // native execution: the player's own exefs
  #else

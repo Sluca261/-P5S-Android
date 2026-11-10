@@ -27,8 +27,9 @@ old_include = """#include <memory>
 #include <nx/runtime.h>"""
 new_include = """#include <memory>
 #include <mutex>
+#if defined(__ANDROID__)
 #include <dlfcn.h>
-#include <unistd.h>
+#endif
 
 #include <nx/runtime.h>"""
 if text.count(old_include) != 1:
@@ -56,6 +57,7 @@ bool write_whole(const std::string& path, const void* data, size_t size) {
     return ok;
 }
 
+#if defined(__ANDROID__)
 // Translate a shader the first time the game asks for it. This is deliberately generic:
 // it consumes the Maxwell code/control block passed through NVN, not P5R-specific CPK data.
 bool translate_shader_on_demand(const std::string& hash, const uint8_t* code, uint32_t code_size,
@@ -105,14 +107,20 @@ bool translate_shader_on_demand(const std::string& hash, const uint8_t* code, ui
     if (!write_whole(shader_dir + "/" + hash + ".spv", spirv.data(), spirv.size())) return false;
 
     // Keep the translated SPIR-V cache; discard only temporary source and report files.
-    unlink((input + "/code.bin").c_str());
-    unlink((input + "/ctrl.bin").c_str());
-    unlink((input + "/manifest.tsv").c_str());
-    unlink((output + "/" + hash + ".spv").c_str());
-    unlink((output + "/results.tsv").c_str());
-    unlink((output + "/summary.txt").c_str());
+    std::remove((input + "/code.bin").c_str());
+    std::remove((input + "/ctrl.bin").c_str());
+    std::remove((input + "/manifest.tsv").c_str());
+    std::remove((output + "/" + hash + ".spv").c_str());
+    std::remove((output + "/results.tsv").c_str());
+    std::remove((output + "/summary.txt").c_str());
     return true;
 }
+#else
+bool translate_shader_on_demand(const std::string&, const uint8_t*, uint32_t,
+                                const uint8_t*, std::string&, std::string&) {
+    return false;
+}
+#endif
 '''
 if text.count(anchor) != 1:
     raise SystemExit("nvn_shaders.cpp: read_whole() anchor not found uniquely")

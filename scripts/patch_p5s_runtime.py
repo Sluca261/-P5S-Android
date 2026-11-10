@@ -79,9 +79,9 @@ bool translate_shader_on_demand(const std::string& hash, const uint8_t* code, ui
     if (!write_whole(input + "/code.bin", code, code_size) ||
         !write_whole(input + "/ctrl.bin", control, 0x880)) return false;
 
-    std::string manifest = "id\\tname\\tstage\\tunused\\tunused\\tunused\\tunused\\tunused\\tunused\\tunused\\thash\\tcode\\tcontrol\\n";
-    manifest.append(10, '\\t');
-    manifest += hash + "\\tcode.bin\\tctrl.bin\\n";
+    std::string manifest = "id\tname\tstage\tunused\tunused\tunused\tunused\tunused\tunused\tunused\thash\tcode\tcontrol\n";
+    manifest.append(10, '\t');
+    manifest += hash + "\tcode.bin\tctrl.bin\n";
     if (!write_whole(input + "/manifest.tsv", manifest.data(), manifest.size())) return false;
 
     const char* args[] = {"--batch", input.c_str(), "--out", output.c_str(), "--jobs", "1", "--no-val"};

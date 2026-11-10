@@ -6,7 +6,7 @@ Projeto experimental de pesquisa para avaliar a viabilidade técnica de um port 
 
 O projeto já integra ao APK Android um runtime ARM64 compartilhado, compilado com execução NCE, carregamento de contêiner NSP/XCI, suporte a chaves locais, backend NVN/Vulkan e tradutor Maxwell→SPIR-V sob demanda. O launcher encaminha o descritor do arquivo e os caminhos privados das chaves ao NativeActivity. O runtime também valida o Title ID-base de Persona 5 Strikers, tenta carregar módulos opcionais `subsdk1` a `subsdk9` e registra o Build ID do executável e uma amostra limitada de importações não resolvidas para orientar a compatibilidade.
 
-A compilação integrada mais recente, [42769913484](https://github.com/Sluca261/-P5S-Android/actions/runs/42769913484), no commit `b58351051bd3957dec93beb13d65e68f96f79626`, foi concluída com sucesso: runtime ARM64 compilado, tradutor nativo gerado, APK empacotado e símbolos essenciais verificados. Isso comprova a integração técnica e o empacotamento, **não** o funcionamento do jogo.
+A compilação integrada mais recente, [42795817189](https://github.com/Sluca261/-P5S-Android/actions/runs/42795817189), no commit `85655e6c9b952aad47217ddfd5c2b01a12c34029`, foi concluída com sucesso. Além de compilar o runtime ARM64 e o tradutor NativeAOT, o APK passou pela verificação estática das três bibliotecas ARM64, do ponto de entrada NativeActivity, do export do tradutor e da ponte JNI. O commit também serializa as traduções de shaders para proteger os arquivos temporários e o estado interno do tradutor contra chamadas simultâneas. Isso comprova build, empacotamento e símbolos, **não** a execução do jogo.
 
 A tela e o modelo Vulkan de diagnóstico continuam disponíveis para testes independentes. Eles não representam gráficos, cenas ou controles do Persona 5 Strikers. O adaptador específico de P5S ainda não possui hooks ou offsets de jogo validados. A próxima etapa é obter evidências de inicialização com uma cópia local do jogo, identificar incompatibilidades por meio dos logs e avançar até uma cena real e combate interativo.
 
@@ -78,7 +78,7 @@ O contrato mínimo do jogo para uma futura integração do runtime compartilhado
 
 ## Integração do runtime ARM64 (2026-11-10)
 
-A integração experimental do runtime compartilhado foi conectada ao APK: o CI compila `libp5s.so` com NCE, gera o tradutor ARM64 Maxwell→SPIR-V e empacota as bibliotecas no aplicativo. A execução mais recente passou pela validação estática de arquitetura ELF e dos símbolos NativeActivity, tradutor e ponte JNI no workflow [42769913484](https://github.com/Sluca261/-P5S-Android/actions/runs/42769913484).
+A integração experimental do runtime compartilhado foi conectada ao APK: o CI compila `libp5s.so` com NCE, gera o tradutor ARM64 Maxwell→SPIR-V e empacota as bibliotecas no aplicativo. A execução mais recente, [42795817189](https://github.com/Sluca261/-P5S-Android/actions/runs/42795817189), passou pela validação estática de arquitetura ELF e dos símbolos NativeActivity, tradutor e ponte JNI.
 
 **Importante:** isso comprova build e empacotamento, não compatibilidade nem jogabilidade. Ainda não há comprovação de boot de um dump real de Persona 5 Strikers, primeira cena renderizada, combate, áudio ou salvamento. O adaptador P5S permanece sem hooks específicos até que o executável correto seja identificado e analisado. Consulte [docs/P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md) para os marcos e limitações atuais.
 

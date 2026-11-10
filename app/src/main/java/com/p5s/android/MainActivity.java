@@ -387,7 +387,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             long fileCount = uint32LE(header, 4);
             long stringTableSize = uint32LE(header, 8);
             if (fileCount == 0 || fileCount > 10000L
-                    || stringTableSize > 1024L * 1024L) {
+                    || stringTableSize == 0 || stringTableSize > 1024L * 1024L) {
                 return "dimensões da tabela fora dos limites de segurança";
             }
 
@@ -402,35 +402,63 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             byte[] strings = new byte[(int) stringTableSize];
             if (!readFully(raw, strings)) return "tabela de nomes incompleta";
 
-            int shown = 0;
+            java.util.HashSet<String> names = new java.util.HashSet<>();
+            java.util.ArrayList<long[]> ranges = new java.util.ArrayList<>();
+            int ncaCount = 0;
+            int cnmtCount = 0;
             StringBuilder sample = new StringBuilder();
+
             for (int i = 0; i < (int) fileCount; i++) {
                 int p = i * 0x18;
                 long offset = uint64LE(entries, p);
                 long size = uint64LE(entries, p + 8);
                 long nameOffset = uint32LE(entries, p + 16);
-                if (offset < 0 || size < 0 || nameOffset >= stringTableSize
+                if (offset < 0 || size <= 0 || nameOffset >= stringTableSize
                         || offset > Long.MAX_VALUE - dataStart
                         || size > Long.MAX_VALUE - dataStart - offset) {
                     return "entrada " + (i + 1) + " contém campos inválidos";
                 }
-                long end = dataStart + offset + size;
-                if (fileSize >= 0 && end > fileSize) {
+
+                long absoluteStart = dataStart + offset;
+                long absoluteEnd = absoluteStart + size;
+                if (fileSize >= 0 && absoluteEnd > fileSize) {
                     return "entrada " + (i + 1) + " aponta além do arquivo";
                 }
-                if (shown < 6) {
-                    int start = (int) nameOffset;
-                    int finish = start;
-                    while (finish < strings.length && strings[finish] != 0) finish++;
-                    String entryName = new String(strings, start, finish - start,
-                            java.nio.charset.StandardCharsets.UTF_8);
-                    if (entryName.length() == 0) entryName = "(nome vazio)";
-                    if (shown > 0) sample.append(" | ");
+
+                int nameStart = (int) nameOffset;
+                int nameEnd = nameStart;
+                while (nameEnd < strings.length && strings[nameEnd] != 0) nameEnd++;
+                if (nameEnd == strings.length || nameEnd == nameStart) {
+                    return "entrada " + (i + 1) + " tem nome vazio ou sem terminador";
+                }
+                String entryName = new String(strings, nameStart, nameEnd - nameStart,
+                        java.nio.charset.StandardCharsets.UTF_8);
+                if (entryName.contains("/") || entryName.contains("\\\\")
+                        || ".".equals(entryName) || "..".equals(entryName)
+                        || !names.add(entryName)) {
+                    return "entrada " + (i + 1) + " tem nome inválido ou duplicado";
+                }
+
+                String lowerEntryName = entryName.toLowerCase(Locale.ROOT);
+                if (lowerEntryName.endsWith(".nca")) ncaCount++;
+                if (lowerEntryName.endsWith(".cnmt.nca")) cnmtCount++;
+                ranges.add(new long[]{absoluteStart, absoluteEnd});
+
+                if (i < 6) {
+                    if (sample.length() > 0) sample.append(" | ");
                     sample.append(entryName).append(" (").append(formatFileSize(size)).append(")");
-                    shown++;
                 }
             }
-            return fileCount + " entrada(s) PFS0; amostra: " + sample;
+
+            ranges.sort((a, b) -> Long.compare(a[0], b[0]));
+            for (int i = 1; i < ranges.size(); i++) {
+                if (ranges.get(i)[0] < ranges.get(i - 1)[1]) {
+                    return "arquivos internos possuem regiões sobrepostas";
+                }
+            }
+
+            return fileCount + " entrada(s) PFS0; " + ncaCount + " arquivo(s) NCA"
+                    + " (" + cnmtCount + " CNMT NCA); amostra: " + sample;
         } catch (Exception e) {
             return "falha na leitura estrutural: " + e.getClass().getSimpleName();
         }

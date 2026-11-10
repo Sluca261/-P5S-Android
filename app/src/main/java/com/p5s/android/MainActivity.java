@@ -320,9 +320,6 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
                 out.getFD().sync();
             }
-            // Transfer ownership of the game descriptor only after every other preparation
-            // step succeeds. Until detachFd(), the ParcelFileDescriptor closes it on failure.
-            int fd = pfd.detachFd();
             String titleKeysPath = null;
             if (selectedTitleKeysUri != null) {
                 java.io.File titleKeysCopy = new java.io.File(getFilesDir(), "title.keys");
@@ -336,6 +333,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 }
                 titleKeysPath = titleKeysCopy.getAbsolutePath();
             }
+            // Transfer ownership only after both key files have been prepared.
+            // Until detachFd(), ParcelFileDescriptor closes the game FD on failure.
+            int fd = pfd.detachFd();
             if (!configureRuntime(fd, settings.getString("game_name", "game.nsp"), keysCopy.getAbsolutePath(), titleKeysPath)) {
                 throw new IllegalStateException("O descritor do jogo ou o acesso a prod.keys não pôde ser validado pelo runtime.");
             }

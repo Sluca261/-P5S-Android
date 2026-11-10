@@ -66,3 +66,8 @@ A auditoria da arquitetura de referência, dos pontos específicos de Persona 5 
 ## Identificação do executável-alvo (etapa de preparação)
 
 Foi adicionada uma definição nativa isolada para reconhecer o Title ID base de Persona 5 Strikers (`0100801011C3E000`) e registrar o Build ID de referência associado à versão 1.0.0 (`C4DF04F647BDC727`). A função de identificação aceita também IDs relacionados cujo sufixo de 12 bits represente conteúdo/atualização. Esses valores são referências iniciais de catálogo e ainda precisam ser confrontados com os metadados do arquivo local do usuário. A tela de diagnóstico apenas exibe os identificadores conhecidos: ela **não lê o NSP/XCI, não confirma a versão instalada e não executa o jogo**.
+
+
+## Adaptador inicial do runtime para a versão americana
+
+O contrato mínimo do jogo para uma futura integração do runtime compartilhado está em `runtime-adapter/games/p5s/game.cpp`. Ele registra o Title ID-base americano e mantém deliberadamente vazios os callbacks específicos, sem importar offsets ou hooks de Persona 5 Royal. Isso ainda não está conectado ao CMake do aplicativo e **não torna o APK jogável**. Os requisitos de integração e validação estão em [P5S_US_RUNTIME_INTEGRATION.md](docs/P5S_US_RUNTIME_INTEGRATION.md).

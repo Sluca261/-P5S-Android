@@ -78,7 +78,7 @@ jobs:
           mkdir -p "$VULKAN_SDK"
           ln -s "$GITHUB_WORKSPACE/private/third_party/Vulkan-Headers-1.4.357/include" "$VULKAN_SDK/Include"
           mkdir -p private/third_party/ryubing
-          curl -fsSL -o private/third_party/ryubing.tar.gz https://codeberg.org/Software_arch/Ryubing/archive/a82350bb77.tar.gz
+          curl --fail --location --show-error --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 30 --max-time 600 -o private/third_party/ryubing.tar.gz https://codeberg.org/Software_arch/Ryubing/archive/a82350bb77.tar.gz
           tar -xzf private/third_party/ryubing.tar.gz -C private/third_party/ryubing --strip-components=1
           rm private/third_party/ryubing.tar.gz
           mkdir -p runtime-src/private/third_party

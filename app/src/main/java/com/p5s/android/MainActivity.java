@@ -296,10 +296,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 final int maxChars = 180000;
                 while ((line = reader.readLine()) != null) {
                     if (output.length() + line.length() + 1 > maxChars) {
-                        output.append("\\n[diagnóstico truncado para manter o compartilhamento leve]");
+                        output.append("\n[diagnóstico truncado para manter o compartilhamento leve]");
                         break;
                     }
-                    output.append(line).append('\\n');
+                    output.append(line).append('\n');
                 }
             }
 

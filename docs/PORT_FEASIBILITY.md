@@ -18,6 +18,12 @@ Foi examinada a documentação pública do projeto `Brandon04Gonzalez/p5r-androi
 
 Essa referência é específica para Persona 5 Royal e para o runtime de Super Mario Bros. Wonder Recomp. Ela não é um runtime genérico garantidamente compatível com Persona 5 Strikers. Não copiar ou integrar componentes sem conferir licença, dependências, avisos de terceiros e compatibilidade com o título.
 
+## Evidência de compatibilidade do aparelho
+
+O usuário confirmou que Persona 5 Royal Android funciona perfeitamente no próprio aparelho de destino. Isso é uma evidência prática importante de que o hardware, o Android, o driver Vulkan e a capacidade de memória são suficientes para executar ao menos aquele port nativo. Portanto, o Snapdragon 695/Adreno 619 não deve ser tratado como bloqueio presumido para o projeto P5S.
+
+Essa confirmação não prova, por si só, que Persona 5 Strikers funcionará: são jogos diferentes, com executáveis, bibliotecas, shaders e serviços potencialmente distintos. Ela muda a prioridade técnica: em vez de tratar o desempenho do aparelho como principal incerteza, devemos investigar primeiro a reutilização/adaptação do runtime nativo já usado pelo port P5R, respeitando as licenças MIT e mantendo separados os componentes específicos de cada jogo.
+
 ## Compatibilidade ainda não demonstrada
 
 Para Persona 5 Strikers ainda precisamos confirmar, com metadados extraídos localmente pelo usuário:
@@ -31,7 +37,7 @@ O fato de o NSP ser a versão base sem atualização e de o dispositivo usar And
 
 ## Limites do dispositivo e meta de desempenho
 
-Dispositivo informado: Redmi Note 11 Pro 5G, Snapdragon 695, Adreno 619, 6 GB RAM, Android 13. A meta de 30 FPS deve ser tratada como objetivo experimental, não como promessa. Um projeto de referência para outro jogo reporta desempenho abaixo de 30 FPS em cenas 3D mesmo em um aparelho Snapdragon 685 com Adreno 610 e 8 GB RAM; isso não permite prever diretamente o desempenho de Strikers.
+Dispositivo informado: Redmi Note 11 Pro 5G, Snapdragon 695, Adreno 619, 6 GB RAM, Android 13. O usuário relata que o port nativo de Persona 5 Royal funciona perfeitamente nesse mesmo aparelho. Isso fortalece a viabilidade da plataforma e torna razoável investigar uma meta inicial de 30 FPS para P5S, sem prometer desempenho antes de executar o jogo real. O gargalo principal a resolver é a compatibilidade específica de Persona 5 Strikers com o loader, os serviços e o backend gráfico.
 
 ## Plano incremental
 
@@ -41,10 +47,12 @@ Dispositivo informado: Redmi Note 11 Pro 5G, Snapdragon 695, Adreno 619, 6 GB RA
 - Validar acesso, tamanho e metadados do arquivo sem enviar conteúdo para servidores.
 - Exibir erros claros quando faltarem chaves, espaço ou permissões.
 
-### Fase B — carregador e formatos
-- Avaliar uma implementação licenciada de NSP/NCA e descriptografia.
+### Fase B — base do runtime P5R
+- Auditar a árvore de código e as licenças do port público Persona 5 Royal Android, cuja licença MIT foi confirmada no repositório de referência.
+- Identificar os componentes genéricos reutilizáveis: loader NCE/ARM64, leitor NSP/XCI/NCA, runtime de serviços, NVN/Vulkan, shader translator, áudio, vídeo, entrada e persistência.
+- Separar explicitamente os módulos genéricos dos módulos específicos de P5R; não assumir que os módulos específicos funcionem com P5S.
+- Preparar uma integração reproduzível e compatível com as licenças, sem incluir dumps, chaves ou dados proprietários no repositório ou no APK.
 - Confirmar que o executável e as dependências do Strikers podem ser carregados em ARM64.
-- Não apresentar um botão "Jogar" funcional até que exista um loader e serviços compatíveis.
 
 ### Fase C — runtime
 - Implementar/adaptar os serviços do Switch exigidos especificamente pelo jogo.
@@ -63,4 +71,4 @@ O usuário deve utilizar apenas uma cópia obtida legalmente e as chaves extraí
 
 ## Próxima ação técnica
 
-Antes de implementar um parser ou loader específico, obter somente metadados não sensíveis do dump no próprio aparelho: título/Title ID, versão, tamanho e resultado da validação do contêiner. Nunca solicitar ou registrar o conteúdo de `prod.keys`.
+Auditar a estrutura do port P5R e do runtime upstream usado por ele, criar um mapa de componentes genéricos versus específicos de P5R e estabelecer uma estratégia de integração licenciada no projeto P5S. Em paralelo, o aplicativo deve coletar localmente apenas metadados não sensíveis do dump: Title ID, versão, tamanho e resultado da validação do contêiner. Nunca solicitar, transmitir ou registrar o conteúdo de prod.keys.

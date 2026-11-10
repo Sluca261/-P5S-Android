@@ -39,6 +39,13 @@ check_arm64() {
 check_arm64 "$tmp/libp5s.so"
 check_arm64 "$tmp/libspirvharness.so"
 
+echo "---- NativeActivity dynamic symbols ----"
+"$readelf" --dyn-syms --wide "$tmp/libp5s.so" | grep -E 'ANativeActivity|p5s_internal|glue_ANative' || true
+echo "---- NativeActivity full symbol table ----"
+"$readelf" --symbols --wide "$tmp/libp5s.so" | grep -E 'ANativeActivity|p5s_internal|glue_ANative' || true
+echo "---- NativeActivity dynamic export via nm ----"
+"$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only "$tmp/libp5s.so" | grep -E 'ANativeActivity|p5s_internal|glue_ANative' || true
+
 if ! "$readelf" --dyn-syms --wide "$tmp/libp5s.so" | grep -q 'ANativeActivity_onCreate'; then
   echo "libp5s.so does not export ANativeActivity_onCreate" >&2
   exit 1

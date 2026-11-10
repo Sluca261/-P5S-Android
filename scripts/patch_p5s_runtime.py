@@ -529,10 +529,12 @@ print("Added narrow HID server handlers for observed commands 101/128 and a full
 
 # The pinned upstream runtime already exports the templated SDK-16 symbol.
 # Its Itanium ABI mangling is important: the non-template spelling is NOT equivalent.
-hid_register = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);
-NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState1);'
-if hid_text.count(hid_register) != 1:
+hid_register_16 = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);'
+hid_register_1 = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState1);'
+if hid_text.count(hid_register_16) != 1:
     raise SystemExit("hle_hid.cpp: expected templated GetTouchScreenState<16> HLE export is missing or duplicated")
+if hid_text.count(hid_register_1) != 1:
+    raise SystemExit("hle_hid.cpp: expected templated GetTouchScreenState<1> HLE export is missing or duplicated")
 
 print("Verified the existing templated GetTouchScreenState<16> HLE export; no duplicate export added.")
 

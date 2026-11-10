@@ -472,7 +472,31 @@ touch_anchor = """void GetTouchScreenState(CPU& c) {
     st<int64_t>(c.x[0], int64_t(g_sampling));
     st<int32_t>(c.x[0] + 8, 0);
 }"""
-touch_new = """void GetTouchScreenState(CPU& c) {
+touch_new = """void GetTouchScreenState1(CPU& c) {
+    static std::atomic<uint32_t> touch_reads{0};
+    const uint32_t n = ++touch_reads;
+    const uint64_t out = c.x[0];
+    constexpr uint64_t kTouchState1Size = 0x38;
+    const VmInfo region = vm_query(out);
+    const bool in_region = out >= region.addr && out - region.addr <= region.size &&
+                           kTouchState1Size <= region.size - (out - region.addr);
+    const bool writable = in_region && (region.perm & 2u) != 0 &&
+                          region.state != kMemFree && region.state != kMemInaccessible;
+    if (n <= 32) {
+        log("hid: GetTouchScreenState<1> #%u out=%s addr=%llx size=%llx state=%#x perm=%#x writable=%s sampling=%llu",
+            n, describe(out).c_str(), (unsigned long long)region.addr,
+            (unsigned long long)region.size, region.state, region.perm,
+            writable ? "yes" : "no", (unsigned long long)g_sampling);
+    }
+    if (!writable) {
+        if (n <= 32) log("hid: refusing SDK-1 touchscreen write to unmapped/read-only output");
+        return;
+    }
+    std::memset(reinterpret_cast<void*>(out), 0, kTouchState1Size);
+    st<int64_t>(out, int64_t(g_sampling));
+}
+
+void GetTouchScreenState(CPU& c) {
     static std::atomic<uint32_t> touch_reads{0};
     const uint32_t n = ++touch_reads;
     const uint64_t out = c.x[0];
@@ -505,7 +529,8 @@ print("Added narrow HID server handlers for observed commands 101/128 and a full
 
 # The pinned upstream runtime already exports the templated SDK-16 symbol.
 # Its Itanium ABI mangling is important: the non-template spelling is NOT equivalent.
-hid_register = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);'
+hid_register = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);
+NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState1);'
 if hid_text.count(hid_register) != 1:
     raise SystemExit("hle_hid.cpp: expected templated GetTouchScreenState<16> HLE export is missing or duplicated")
 
@@ -513,3 +538,6 @@ print("Verified the existing templated GetTouchScreenState<16> HLE export; no du
 
 
 # Rebuild trigger: validate GetTouchScreenState output against the guest VM map before writing.
+
+
+# Rebuild trigger: register and safely handle the SDK-1 touchscreen specialization observed in the device log.

@@ -49,6 +49,7 @@ jobs:
           cp games/p5s/game.cpp runtime-src/games/p5s/game.cpp
           test -f runtime-src/runtime/include/nx/game.h
           grep -q 'namespace nx::game' runtime-src/games/p5s/game.cpp
+          git -C runtime-src apply "$GITHUB_WORKSPACE/patches/runtime-android-nce-data-root.patch"
 
       - name: Prepare Vulkan headers and Android dependencies
         run: |

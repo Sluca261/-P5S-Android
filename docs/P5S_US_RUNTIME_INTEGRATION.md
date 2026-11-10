@@ -2,30 +2,48 @@
 
 ## Regional target
 
-The requested copy is the North American/US Nintendo Switch release. The initial catalogue reference is:
+The requested copy is the North American/US Nintendo Switch release.
 
 - Base Program ID: `0100801011C3E000`
 - Publicly catalogued base 1.0.0 Build ID: `C4DF04F647BDC727`
 
-These are identification hints, not a verified read of the user's dump. Updates and related content may use related program IDs, and the exact executable Build ID must be read from the local ExeFS before selecting version-specific patches.
+These are identification hints, not a verified read of the user's dump. Updates and related content may use related program IDs. The exact executable Build ID and CNMT version still need to be read from the local ExeFS before selecting version-specific patches.
 
 ## Adapter boundary
 
-`runtime-adapter/games/p5s/game.cpp` defines the shared runtime's minimal `nx::game::Info` contract for P5S. It deliberately contains no P5R offsets, HLE hooks, shader cache IDs, frame pacing assumptions, or renderer patches. The callbacks are empty until evidence from the US executable justifies a P5S-specific implementation.
+`games/p5s/game.cpp` defines the shared runtime's minimal `nx::game::Info` contract for P5S. It deliberately contains no P5R offsets, HLE hooks, shader cache IDs, frame pacing assumptions, or renderer patches. The callbacks remain empty until evidence from the US executable justifies a P5S-specific implementation.
 
-This adapter is not yet connected to the Android app's CMake build. The current app still builds only `native-lib.cpp`; it does not build the shared Switch runtime and this file is not a playable implementation.
+## Current build status — 2026-11-10
 
-## Runtime integration requirements
+The Android ARM64 runtime integration is now connected to the APK build:
 
-The public P5R reference demonstrates a reusable architecture, not a drop-in P5S port. Before runtime integration can be called successful, the project needs to:
+1. The workflow checks out the shared runtime at pinned commit `0c3b233d07afef37ab5af5dae41bf1a71ea98acf` and applies auditable P5S-only adaptations.
+2. It compiles `libp5s.so` for `arm64-v8a` with NCE enabled.
+3. It builds the ARM64 NativeAOT Maxwell-to-SPIR-V translator as `libspirvharness.so`.
+4. The launcher passes the locally selected NSP/XCI file descriptor and private `prod.keys` path to the NativeActivity runtime. The runtime's game-image path opens the container in place and checks the base Title ID against the P5S adapter.
+5. The standalone NativeActivity export wrapper and both native libraries are checked in the APK before artifact publication.
 
-1. Vendor or pin an auditable, licensed shared runtime and its Android platform layer, retaining upstream attribution and notices.
-2. Build the shared runtime for `arm64-v8a` with native AArch64 execution (NCE), without bundling any game executable or keys.
-3. Connect Android's document-provider file descriptor to the runtime's importer. The runtime must open the user's local NSP/XCI and local key files in place; none of these may be uploaded or placed in the APK.
-4. Verify the program ID, CNMT version and ExeFS Build ID from the user's local file before choosing a game adapter or applying patches.
-5. Determine P5S-specific system services, graphics/shader requirements, audio/video, input and save behavior from actual runtime logs and controlled tests. P5R game-specific hooks and shaders must not be copied.
-6. Build, install and test on the target Android device, progressing from boot to title screen, menus, combat, cutscenes, audio and save/load.
+The CI run [42758709005](https://github.com/Sluca261/-P5S-Android/actions/runs/42758709005) completed successfully. Its APK artifact passed static checks for ARM64 ELF architecture, the NativeActivity entry point, and the shader translator export.
 
-## Current status
+**This proves compilation, packaging and static symbol validation only. It does not prove that P5S boots or is playable.** No real P5S NSP/XCI has been used in CI, and the APK has not yet been validated through the game's boot sequence on the target phone.
 
-This commit adds only the P5S adapter boundary. It does not add NSP/XCI decryption, key management, NCE execution, NVN translation, shader extraction, or a game runtime. The existing diagnostic APK remains non-playable. Do not label a build as a playable Alpha until the runtime boots the US game and reaches interactive gameplay.
+## Remaining compatibility work
+
+The public P5R reference is a reusable architecture, not a drop-in P5S port. The shared loader can now be built into the app, but game-specific compatibility remains unproven:
+
+1. Verify the user's local container metadata, CNMT version, ExeFS modules and actual Build ID without uploading the game or keys.
+2. Confirm that P5S's ARM64 executable and its imported Switch services are supported by the shared runtime.
+3. Capture and diagnose first-boot runtime logs; resolve missing services, imports, filesystem assumptions or memory mappings based on evidence.
+4. Validate P5S's NVN shader/control data and Maxwell-to-SPIR-V translation on the target Adreno/Vulkan driver. The on-demand translator is integrated, but P5S shader coverage is not yet demonstrated.
+5. Validate video/cutscenes, AAudio, touch and physical controls, save/load and stability.
+6. Progress through observable milestones: runtime boot, first rendered game scene, title/menu, interactive combat, then full gameplay sessions.
+
+No P5R-specific hooks, offsets or shader caches should be copied into P5S without evidence from the matching P5S executable.
+
+## Privacy and distribution
+
+The project must not contain game assets, executable modules, NSP/XCI files, `prod.keys` or title keys. The user's local game and keys remain on their device; they must never be committed, uploaded to CI, or included in the APK. The runtime and translator binaries are built from pinned public source and their applicable notices/licenses must be preserved.
+
+## Definition of a playable build
+
+A successful build, APK artifact, launcher screen, Vulkan diagnostic model or NativeActivity launch alone is not a playable version. The project should only be marked playable after a real, locally supplied P5S copy reaches interactive gameplay with working rendering and controls. Audio and save/load should also be validated before calling the port complete.

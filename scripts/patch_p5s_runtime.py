@@ -413,8 +413,8 @@ image.write_text(text)
 # This is diagnostic only: do not guess service command layouts or fabricate responses.
 ipc_cpp = root / "runtime/src/ipc.cpp"
 ipc_text = ipc_cpp.read_text()
-ipc_include = "#include <mutex>\\n#include <set>"
-ipc_include_new = "#include <atomic>\\n#include <mutex>\\n#include <set>"
+ipc_include = "#include <mutex>\n#include <set>"
+ipc_include_new = "#include <atomic>\n#include <mutex>\n#include <set>"
 if ipc_text.count(ipc_include) != 1:
     raise SystemExit("ipc.cpp: include insertion point not found uniquely")
 ipc_text = ipc_text.replace(ipc_include, ipc_include_new)

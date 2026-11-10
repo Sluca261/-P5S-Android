@@ -45,10 +45,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Install native build tools
+      - name: Verify native build tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq cmake ninja-build git curl tar patch
+          for tool in cmake ninja git curl tar patch; do
+            command -v "$tool" || { echo "Missing required tool: $tool"; exit 1; }
+          done
 
       - name: Fetch pinned shared runtime
         run: |
@@ -113,7 +114,10 @@ jobs:
           mkdir -p app/src/main/jniLibs/arm64-v8a
           cp build-p5s-runtime/libp5s.so app/src/main/jniLibs/arm64-v8a/libp5s.so
           cp build-p5s-harness/libspirvharness.so app/src/main/jniLibs/arm64-v8a/libspirvharness.so
-          sudo apt-get install -y -qq glslang-tools
+          if ! command -v glslangValidator >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq glslang-tools
+          fi
           mkdir -p app/build/generated/shaders
           glslangValidator -V app/src/main/shaders/triangle.vert -o app/build/generated/shaders/triangle.vert.spv
           glslangValidator -V app/src/main/shaders/triangle.frag -o app/build/generated/shaders/triangle.frag.spv

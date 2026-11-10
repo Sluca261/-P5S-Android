@@ -185,10 +185,11 @@ shaders.write_text(text)
 # entry point therefore needs an explicit default-visibility annotation or Android
 # cannot resolve ANativeActivity_onCreate from libp5s.so at launch.
 platform_text = platform.read_text()
-old_entry = 'extern "C" void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
-new_entry = 'extern "C" __attribute__((visibility("default"))) void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
-if platform_text.count(old_entry) != 1:
-    raise SystemExit("platform_android.cpp: NativeActivity entry point not found uniquely")
-platform.write_text(platform_text.replace(old_entry, new_entry))
+# JNIEXPORT expands to default visibility on Android. The upstream entry point
+# already carries it; assert that contract rather than rewriting a non-existent form.
+entry = 'extern "C" JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
+if platform_text.count(entry) != 1:
+    raise SystemExit("platform_android.cpp: exported NativeActivity entry point not found uniquely")
+
 
 print("Applied P5S runtime adaptations: NSP-backed data root, on-demand Maxwell shader translation, and exported NativeActivity entry point.")

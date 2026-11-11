@@ -528,6 +528,9 @@ hid_cpp.write_text(hid_text.replace(touch_anchor, touch_new))
 print("Added narrow HID server handlers for observed commands 101/128 and a fully initialized empty touch state; bounded diagnostics remain enabled.")
 
 # The pinned upstream runtime already exports the templated SDK-16 symbol.
+# Reload the file after the touch-handler rewrite; otherwise the later HLE registration
+# would write the stale pre-rewrite buffer and silently discard GetTouchScreenState1.
+hid_text = hid_cpp.read_text()
 # Its Itanium ABI mangling is important: the non-template spelling is NOT equivalent.
 hid_register_16 = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);'
 hid_register_1 = 'NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState1);'

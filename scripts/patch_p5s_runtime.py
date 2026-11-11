@@ -548,3 +548,68 @@ print("Registered both templated GetTouchScreenState<16> and the P5S-observed <1
 
 
 # Rebuild trigger: register and safely handle the SDK-1 touchscreen specialization observed in the device log.
+
+
+# Instrument P5S save mount lifecycle and the exact Commit mount-name lookup.
+# Keep Commit's existing success behavior: this patch is diagnostic only and does
+# not fabricate a mount or hide a genuine filesystem error.
+fs_cpp = root / "runtime/src/hle_fs.cpp"
+fs_text = fs_cpp.read_text()
+old_commit = "void Commit(CPU& c) { c.x[0] = kOk; }"
+new_commit = """void Commit(CPU& c) {
+    const std::string name = cstr(c.x[0]);
+    std::lock_guard lk(g_fs);
+    auto it = g_mounts.find(name);
+    if (it == g_mounts.end()) {
+        log("fs: Commit(%s) -> mount NOT REGISTERED (registered=%zu)", name.c_str(), g_mounts.size());
+        for (const auto& entry : g_mounts)
+            log("fs: Commit diagnostic registered mount: %s -> %s",
+                entry.first.c_str(), entry.second.string().c_str());
+    } else {
+        log("fs: Commit(%s) -> registered path %s", name.c_str(), it->second.string().c_str());
+    }
+    c.x[0] = kOk;
+}"""
+if fs_text.count(old_commit) != 1:
+    raise SystemExit("hle_fs.cpp: Commit handler anchor not found uniquely")
+fs_text = fs_text.replace(old_commit, new_commit)
+
+old_mount = """void MountSaveData(CPU& c) {
+    std::lock_guard lk(g_fs);
+    std::string name = cstr(c.x[0]);
+    mount(name, save_dir_of(c.x[1]));
+    c.x[0] = kOk;
+}"""
+new_mount = """void MountSaveData(CPU& c) {
+    std::lock_guard lk(g_fs);
+    std::string name = cstr(c.x[0]);
+    const fs::path path = save_dir_of(c.x[1]);
+    log("fs: MountSaveData requested name='%s' uid_ptr=%llx path=%s",
+        name.c_str(), (unsigned long long)c.x[1], path.string().c_str());
+    mount(name, path);
+    c.x[0] = kOk;
+}"""
+if fs_text.count(old_mount) != 1:
+    raise SystemExit("hle_fs.cpp: MountSaveData handler anchor not found uniquely")
+fs_text = fs_text.replace(old_mount, new_mount)
+
+old_unmount = """void Unmount(CPU& c) {
+    std::lock_guard lk(g_fs);
+    g_mounts.erase(cstr(c.x[0]));
+    g_image_mounts.erase(cstr(c.x[0]));
+    c.x[0] = kOk;
+}"""
+new_unmount = """void Unmount(CPU& c) {
+    std::lock_guard lk(g_fs);
+    const std::string name = cstr(c.x[0]);
+    const size_t erased = g_mounts.erase(name);
+    g_image_mounts.erase(name);
+    log("fs: Unmount('%s') erased=%zu mounts_remaining=%zu",
+        name.c_str(), erased, g_mounts.size());
+    c.x[0] = kOk;
+}"""
+if fs_text.count(old_unmount) != 1:
+    raise SystemExit("hle_fs.cpp: Unmount handler anchor not found uniquely")
+fs_text = fs_text.replace(old_unmount, new_unmount)
+fs_cpp.write_text(fs_text)
+print("Added bounded save-mount lifecycle diagnostics for MountSaveData, Unmount and Commit.")

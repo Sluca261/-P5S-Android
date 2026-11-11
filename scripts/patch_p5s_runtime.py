@@ -675,11 +675,11 @@ new_commit = """void CommitSaveData(CPU& c) {
             directories.push_back(path);
         } else if (is_regular_file) {
 #if defined(_WIN32)
-            const int fd = _open(path.string().c_str(), _O_RDONLY | _O_BINARY);
+            const int fd = _open(path.string().c_str(), _O_WRONLY | _O_BINARY);
             const bool synced = fd >= 0 && _commit(fd) == 0;
             if (fd >= 0) _close(fd);
 #else
-            const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            const int fd = ::open(path.c_str(), O_WRONLY | O_CLOEXEC);
             const bool synced = fd >= 0 && fsync(fd) == 0;
             if (fd >= 0) ::close(fd);
 #endif

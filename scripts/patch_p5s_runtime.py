@@ -561,7 +561,7 @@ print("Registered both templated GetTouchScreenState<16> and the P5S-observed <1
 fs_cpp = root / "runtime/src/hle_fs.cpp"
 fs_text = fs_cpp.read_text()
 if "#include <fcntl.h>" not in fs_text:
-    fs_text = fs_text.replace("#include <cerrno>", "#include <cerrno>\\n#include <fcntl.h>", 1)
+    fs_text = fs_text.replace("#include <cerrno>", "#include <cerrno>\n#include <fcntl.h>", 1)
 
 old_commit = "void Commit(CPU& c) { c.x[0] = kOk; }"
 new_commit = """void CommitSaveData(CPU& c) {
@@ -605,11 +605,13 @@ new_commit = """void CommitSaveData(CPU& c) {
     }
     while (it != end) {
         const fs::path path = it->path();
-        if (it->is_directory(ec)) {
-            if (ec) break;
+        const bool is_directory = it->is_directory(ec);
+        if (ec) break;
+        const bool is_regular_file = !is_directory && it->is_regular_file(ec);
+        if (ec) break;
+        if (is_directory) {
             directories.push_back(path);
-        } else if (it->is_regular_file(ec)) {
-            if (ec) break;
+        } else if (is_regular_file) {
 #if defined(_WIN32)
             const int fd = _open(path.string().c_str(), _O_RDONLY | _O_BINARY);
             const bool synced = fd >= 0 && _commit(fd) == 0;

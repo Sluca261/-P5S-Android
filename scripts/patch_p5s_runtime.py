@@ -561,7 +561,14 @@ print("Registered both templated GetTouchScreenState<16> and the P5S-observed <1
 fs_cpp = root / "runtime/src/hle_fs.cpp"
 fs_text = fs_cpp.read_text()
 if "#include <fcntl.h>" not in fs_text:
-    fs_text = fs_text.replace("#include <cerrno>", "#include <cerrno>\n#include <fcntl.h>", 1)
+    fs_text = """#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+""" + fs_text
 
 old_commit = "void Commit(CPU& c) { c.x[0] = kOk; }"
 new_commit = """void CommitSaveData(CPU& c) {

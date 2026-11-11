@@ -613,3 +613,109 @@ if fs_text.count(old_unmount) != 1:
 fs_text = fs_text.replace(old_unmount, new_unmount)
 fs_cpp.write_text(fs_text)
 print("Added bounded save-mount lifecycle diagnostics for MountSaveData, Unmount and Commit.")
+
+
+# Diagnose the actual host-side save I/O without replacing CommitSaveData or
+# changing any filesystem return value. CommitSaveData may execute internally
+# inside sdk and bypass imported-symbol HLE relocation, so observe the lower
+# file operations that the SDK/game does route through the shared FS layer.
+fs_cpp = root / "runtime/src/hle_fs.cpp"
+fs_text = fs_cpp.read_text()
+
+old_write = """    plat::fseek64(file->f, int64_t(c.x[1]), SEEK_SET);
+    fwrite(reinterpret_cast<const void*>(c.x[2]), 1, c.x[3], file->f);
+    fflush(file->f);  // positional reads bypass the FILE buffer (saves only: rare and small)
+    c.x[0] = kOk;"""
+new_write = """    plat::fseek64(file->f, int64_t(c.x[1]), SEEK_SET);
+    errno = 0;
+    const size_t written = fwrite(reinterpret_cast<const void*>(c.x[2]), 1, size_t(c.x[3]), file->f);
+    const int write_errno = errno;
+    errno = 0;
+    const int flush_rc = fflush(file->f);  // positional reads bypass the FILE buffer
+    const int flush_errno = errno;
+    if (written != size_t(c.x[3]) || flush_rc != 0 || ferror(file->f))
+        log("fs: SAVE I/O FAILURE WriteFile path=%s offset=%lld requested=%llu written=%zu fflush=%d ferror=%d errno_write=%d errno_flush=%d",
+            file->path.c_str(), (long long)c.x[1], (unsigned long long)c.x[3],
+            written, flush_rc, ferror(file->f), write_errno, flush_errno);
+    else
+        log("fs: save WriteFile path=%s offset=%lld bytes=%zu flushed=ok",
+            file->path.c_str(), (long long)c.x[1], written);
+    c.x[0] = kOk;"""
+if fs_text.count(old_write) != 1:
+    raise SystemExit("hle_fs.cpp: WriteFile I/O block not found uniquely")
+fs_text = fs_text.replace(old_write, new_write)
+
+old_flush = """void FlushFile(CPU& c) {
+    if (auto file = open_file(c.x[0]); file && file->f) {
+        std::lock_guard lk(g_fs);
+        fflush(file->f);
+    }
+    c.x[0] = kOk;
+}"""
+new_flush = """void FlushFile(CPU& c) {
+    if (auto file = open_file(c.x[0]); file && file->f) {
+        std::lock_guard lk(g_fs);
+        errno = 0;
+        const int rc = fflush(file->f);
+        if (rc != 0 || ferror(file->f))
+            log("fs: SAVE I/O FAILURE FlushFile path=%s rc=%d ferror=%d errno=%d",
+                file->path.c_str(), rc, ferror(file->f), errno);
+        else
+            log("fs: save FlushFile path=%s -> ok", file->path.c_str());
+    } else {
+        log("fs: FlushFile handle=%llu has no writable host file",
+            (unsigned long long)c.x[0]);
+    }
+    c.x[0] = kOk;
+}"""
+if fs_text.count(old_flush) != 1:
+    raise SystemExit("hle_fs.cpp: FlushFile block not found uniquely")
+fs_text = fs_text.replace(old_flush, new_flush)
+
+old_create = """    FILE* f = plat::fopen_utf8(utf8(p), "wb");
+    if (f) {
+        if (size > 0) {
+            plat::fseek64(f, size - 1, SEEK_SET);
+            fputc(0, f);
+        }
+        fclose(f);
+    }
+    c.x[0] = f ? kOk : kPathNotFound;"""
+new_create = """    errno = 0;
+    FILE* f = plat::fopen_utf8(utf8(p), "wb");
+    const int open_errno = errno;
+    if (f) {
+        if (size > 0) {
+            plat::fseek64(f, size - 1, SEEK_SET);
+            fputc(0, f);
+        }
+        errno = 0;
+        const int close_rc = fclose(f);
+        if (close_rc != 0)
+            log("fs: SAVE I/O FAILURE CreateFile close path=%s size=%lld errno=%d",
+                p.string().c_str(), (long long)size, errno);
+        else
+            log("fs: save CreateFile path=%s size=%lld -> ok", p.string().c_str(), (long long)size);
+    } else {
+        log("fs: SAVE I/O FAILURE CreateFile open path=%s size=%lld errno=%d",
+            p.string().c_str(), (long long)size, open_errno);
+    }
+    c.x[0] = f ? kOk : kPathNotFound;"""
+if fs_text.count(old_create) != 1:
+    raise SystemExit("hle_fs.cpp: CreateFile block not found uniquely")
+fs_text = fs_text.replace(old_create, new_create)
+
+old_ensure = """    fs::create_directories(p, ec);
+    log("fs: EnsureSaveData -> %s", p.string().c_str());
+    c.x[0] = kOk;"""
+new_ensure = """    fs::create_directories(p, ec);
+    log("fs: EnsureSaveData -> %s ec=%d (%s) exists=%s",
+        p.string().c_str(), ec.value(), ec.message().c_str(),
+        fs::is_directory(p) ? "yes" : "no");
+    c.x[0] = kOk;"""
+if fs_text.count(old_ensure) != 1:
+    raise SystemExit("hle_fs.cpp: EnsureSaveData block not found uniquely")
+fs_text = fs_text.replace(old_ensure, new_ensure)
+
+fs_cpp.write_text(fs_text)
+print("Added save I/O diagnostics for EnsureSaveData, CreateFile, WriteFile and FlushFile; original return behavior is unchanged.")

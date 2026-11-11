@@ -560,6 +560,8 @@ print("Registered both templated GetTouchScreenState<16> and the P5S-observed <1
 # for an unknown mount or a failed host flush.
 fs_cpp = root / "runtime/src/hle_fs.cpp"
 fs_text = fs_cpp.read_text()
+if "#include <fcntl.h>" not in fs_text:
+    fs_text = fs_text.replace("#include <cerrno>", "#include <cerrno>\\n#include <fcntl.h>", 1)
 
 old_commit = "void Commit(CPU& c) { c.x[0] = kOk; }"
 new_commit = """void CommitSaveData(CPU& c) {
@@ -585,17 +587,70 @@ new_commit = """void CommitSaveData(CPU& c) {
             c.x[0] = kPathNotFound;
             return;
         }
+    }
+
+    // A save file may already have been closed when the game commits. Flush every
+    // regular file beneath the mounted save directory, not just live FILE handles.
+    std::error_code ec;
+    std::vector<fs::path> directories;
+    directories.push_back(mount->second);
+    fs::recursive_directory_iterator it(
+        mount->second, fs::directory_options::skip_permission_denied, ec);
+    const fs::recursive_directory_iterator end;
+    if (ec) {
+        log("fs: CommitSaveData('%s') -> cannot scan save directory %s (error=%s)",
+            name.c_str(), mount->second.string().c_str(), ec.message().c_str());
+        c.x[0] = kPathNotFound;
+        return;
+    }
+    while (it != end) {
+        const fs::path path = it->path();
+        if (it->is_directory(ec)) {
+            if (ec) break;
+            directories.push_back(path);
+        } else if (it->is_regular_file(ec)) {
+            if (ec) break;
 #if defined(_WIN32)
-        if (_commit(_fileno(file->f)) != 0) {
+            const int fd = _open(path.string().c_str(), _O_RDONLY | _O_BINARY);
+            const bool synced = fd >= 0 && _commit(fd) == 0;
+            if (fd >= 0) _close(fd);
 #else
-        if (fsync(fileno(file->f)) != 0) {
+            const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+            const bool synced = fd >= 0 && fsync(fd) == 0;
+            if (fd >= 0) ::close(fd);
 #endif
-            log("fs: CommitSaveData('%s') -> host sync failed for %s (errno=%d)",
-                name.c_str(), file->path.c_str(), errno);
+            if (!synced) {
+                log("fs: CommitSaveData('%s') -> host sync failed for %s (errno=%d)",
+                    name.c_str(), path.string().c_str(), errno);
+                c.x[0] = kPathNotFound;
+                return;
+            }
+        }
+        it.increment(ec);
+        if (ec) break;
+    }
+    if (ec) {
+        log("fs: CommitSaveData('%s') -> save scan failed (error=%s)",
+            name.c_str(), ec.message().c_str());
+        c.x[0] = kPathNotFound;
+        return;
+    }
+
+#if !defined(_WIN32)
+    // Persist directory entries too, deepest first, so newly created save files survive
+    // a process/device interruption after CommitSaveData returns.
+    for (auto dir = directories.rbegin(); dir != directories.rend(); ++dir) {
+        const int fd = ::open(dir->c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        const bool synced = fd >= 0 && fsync(fd) == 0;
+        if (fd >= 0) ::close(fd);
+        if (!synced) {
+            log("fs: CommitSaveData('%s') -> directory sync failed for %s (errno=%d)",
+                name.c_str(), dir->string().c_str(), errno);
             c.x[0] = kPathNotFound;
             return;
         }
     }
+#endif
 
     log("fs: CommitSaveData('%s') -> committed host save at %s",
         name.c_str(), mount->second.string().c_str());

@@ -68,6 +68,7 @@ jobs:
           test -f runtime-src/runtime/include/nx/game.h
           grep -q 'namespace nx::game' runtime-src/games/p5s/game.cpp
           python3 scripts/patch_p5s_runtime.py runtime-src
+          python3 scripts/write_runtime_fingerprint.py runtime-src "$UPSTREAM_COMMIT" "$GITHUB_SHA"
 
       - name: Audit P5S-specific runtime adaptations
         run: python3 scripts/verify_p5s_adaptations.py runtime-src

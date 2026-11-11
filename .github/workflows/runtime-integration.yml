@@ -6,6 +6,7 @@ on:
     paths:
       - 'games/p5s/game.cpp'
       - 'scripts/patch_p5s_runtime.py'
+      - 'scripts/verify_p5s_adaptations.py'
       - 'scripts/verify_runtime_apk.sh'
       - 'app/src/main/java/com/p5s/android/MainActivity.java'
       - 'app/src/main/cpp/native-lib.cpp'
@@ -67,6 +68,9 @@ jobs:
           test -f runtime-src/runtime/include/nx/game.h
           grep -q 'namespace nx::game' runtime-src/games/p5s/game.cpp
           python3 scripts/patch_p5s_runtime.py runtime-src
+
+      - name: Audit P5S-specific runtime adaptations
+        run: python3 scripts/verify_p5s_adaptations.py runtime-src
 
       - name: Run upstream Android MediaImage2 plane-layout unit tests
         run: |

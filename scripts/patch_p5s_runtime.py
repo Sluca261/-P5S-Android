@@ -550,172 +550,66 @@ print("Registered both templated GetTouchScreenState<16> and the P5S-observed <1
 # Rebuild trigger: register and safely handle the SDK-1 touchscreen specialization observed in the device log.
 
 
-# Instrument P5S save mount lifecycle and the exact Commit mount-name lookup.
-# Keep Commit's existing success behavior: this patch is diagnostic only and does
-# not fabricate a mount or hide a genuine filesystem error.
+
+# Route nn::fs::CommitSaveData through the runtime's host-backed save mount.
+# The SDK implementation calls into fsp-srv internally; that path is not
+# intercepted by the imported nn::fs::Commit HLE and fails with ResultNotMounted
+# because this Android runtime represents mounts in g_mounts instead of fsp-srv.
+# Intercept the outer SDK entry point imported by the game and commit the
+# already-flushed host files for that registered mount. Never report success
+# for an unknown mount or a failed host flush.
 fs_cpp = root / "runtime/src/hle_fs.cpp"
 fs_text = fs_cpp.read_text()
+
 old_commit = "void Commit(CPU& c) { c.x[0] = kOk; }"
-new_commit = """void Commit(CPU& c) {
+new_commit = """void CommitSaveData(CPU& c) {
     const std::string name = cstr(c.x[0]);
     std::lock_guard lk(g_fs);
-    auto it = g_mounts.find(name);
-    if (it == g_mounts.end()) {
-        log("fs: Commit(%s) -> mount NOT REGISTERED (registered=%zu)", name.c_str(), g_mounts.size());
-        for (const auto& entry : g_mounts)
-            log("fs: Commit diagnostic registered mount: %s -> %s",
-                entry.first.c_str(), entry.second.string().c_str());
-    } else {
-        log("fs: Commit(%s) -> registered path %s", name.c_str(), it->second.string().c_str());
+    auto mount = g_mounts.find(name);
+    if (name.empty() || mount == g_mounts.end()) {
+        log("fs: CommitSaveData('%s') -> ResultNotMounted (registered mounts=%zu)",
+            name.c_str(), g_mounts.size());
+        c.x[0] = 0x35F202;
+        return;
     }
+
+    const std::string prefix = name + ":/";
+    for (const auto& [handle, file] : g_files) {
+        (void)handle;
+        if (!file || !file->f || file->path.compare(0, prefix.size(), prefix) != 0)
+            continue;
+        errno = 0;
+        if (fflush(file->f) != 0 || ferror(file->f)) {
+            log("fs: CommitSaveData('%s') -> host fflush failed for %s (errno=%d)",
+                name.c_str(), file->path.c_str(), errno);
+            c.x[0] = kPathNotFound;
+            return;
+        }
+#if defined(_WIN32)
+        if (_commit(_fileno(file->f)) != 0) {
+#else
+        if (fsync(fileno(file->f)) != 0) {
+#endif
+            log("fs: CommitSaveData('%s') -> host sync failed for %s (errno=%d)",
+                name.c_str(), file->path.c_str(), errno);
+            c.x[0] = kPathNotFound;
+            return;
+        }
+    }
+
+    log("fs: CommitSaveData('%s') -> committed host save at %s",
+        name.c_str(), mount->second.string().c_str());
     c.x[0] = kOk;
-}"""
+}
+
+void Commit(CPU& c) { c.x[0] = kOk; }"""
 if fs_text.count(old_commit) != 1:
     raise SystemExit("hle_fs.cpp: Commit handler anchor not found uniquely")
 fs_text = fs_text.replace(old_commit, new_commit)
-
-old_mount = """void MountSaveData(CPU& c) {
-    std::lock_guard lk(g_fs);
-    std::string name = cstr(c.x[0]);
-    mount(name, save_dir_of(c.x[1]));
-    c.x[0] = kOk;
-}"""
-new_mount = """void MountSaveData(CPU& c) {
-    std::lock_guard lk(g_fs);
-    std::string name = cstr(c.x[0]);
-    const fs::path path = save_dir_of(c.x[1]);
-    log("fs: MountSaveData requested name='%s' uid_ptr=%llx path=%s",
-        name.c_str(), (unsigned long long)c.x[1], path.string().c_str());
-    mount(name, path);
-    c.x[0] = kOk;
-}"""
-if fs_text.count(old_mount) != 1:
-    raise SystemExit("hle_fs.cpp: MountSaveData handler anchor not found uniquely")
-fs_text = fs_text.replace(old_mount, new_mount)
-
-old_unmount = """void Unmount(CPU& c) {
-    std::lock_guard lk(g_fs);
-    g_mounts.erase(cstr(c.x[0]));
-    g_image_mounts.erase(cstr(c.x[0]));
-    c.x[0] = kOk;
-}"""
-new_unmount = """void Unmount(CPU& c) {
-    std::lock_guard lk(g_fs);
-    const std::string name = cstr(c.x[0]);
-    const size_t erased = g_mounts.erase(name);
-    g_image_mounts.erase(name);
-    log("fs: Unmount('%s') erased=%zu mounts_remaining=%zu",
-        name.c_str(), erased, g_mounts.size());
-    c.x[0] = kOk;
-}"""
-if fs_text.count(old_unmount) != 1:
-    raise SystemExit("hle_fs.cpp: Unmount handler anchor not found uniquely")
-fs_text = fs_text.replace(old_unmount, new_unmount)
+old_reg = 'NX_HLE("_ZN2nn2fs6CommitEPKc", Commit);'
+new_reg = old_reg + '\nNX_HLE("_ZN2nn2fs14CommitSaveDataEPKc", CommitSaveData);'
+if fs_text.count(old_reg) != 1:
+    raise SystemExit("hle_fs.cpp: Commit HLE registration anchor not found uniquely")
+fs_text = fs_text.replace(old_reg, new_reg)
 fs_cpp.write_text(fs_text)
-print("Added bounded save-mount lifecycle diagnostics for MountSaveData, Unmount and Commit.")
-
-
-# Diagnose the actual host-side save I/O without replacing CommitSaveData or
-# changing any filesystem return value. CommitSaveData may execute internally
-# inside sdk and bypass imported-symbol HLE relocation, so observe the lower
-# file operations that the SDK/game does route through the shared FS layer.
-fs_cpp = root / "runtime/src/hle_fs.cpp"
-fs_text = fs_cpp.read_text()
-
-old_write = """    plat::fseek64(file->f, int64_t(c.x[1]), SEEK_SET);
-    fwrite(reinterpret_cast<const void*>(c.x[2]), 1, c.x[3], file->f);
-    fflush(file->f);  // positional reads bypass the FILE buffer (saves only: rare and small)
-    c.x[0] = kOk;"""
-new_write = """    plat::fseek64(file->f, int64_t(c.x[1]), SEEK_SET);
-    errno = 0;
-    const size_t written = fwrite(reinterpret_cast<const void*>(c.x[2]), 1, size_t(c.x[3]), file->f);
-    const int write_errno = errno;
-    errno = 0;
-    const int flush_rc = fflush(file->f);  // positional reads bypass the FILE buffer
-    const int flush_errno = errno;
-    if (written != size_t(c.x[3]) || flush_rc != 0 || ferror(file->f))
-        log("fs: SAVE I/O FAILURE WriteFile path=%s offset=%lld requested=%llu written=%zu fflush=%d ferror=%d errno_write=%d errno_flush=%d",
-            file->path.c_str(), (long long)c.x[1], (unsigned long long)c.x[3],
-            written, flush_rc, ferror(file->f), write_errno, flush_errno);
-    else
-        log("fs: save WriteFile path=%s offset=%lld bytes=%zu flushed=ok",
-            file->path.c_str(), (long long)c.x[1], written);
-    c.x[0] = kOk;"""
-if fs_text.count(old_write) != 1:
-    raise SystemExit("hle_fs.cpp: WriteFile I/O block not found uniquely")
-fs_text = fs_text.replace(old_write, new_write)
-
-old_flush = """void FlushFile(CPU& c) {
-    if (auto file = open_file(c.x[0]); file && file->f) {
-        std::lock_guard lk(g_fs);
-        fflush(file->f);
-    }
-    c.x[0] = kOk;
-}"""
-new_flush = """void FlushFile(CPU& c) {
-    if (auto file = open_file(c.x[0]); file && file->f) {
-        std::lock_guard lk(g_fs);
-        errno = 0;
-        const int rc = fflush(file->f);
-        if (rc != 0 || ferror(file->f))
-            log("fs: SAVE I/O FAILURE FlushFile path=%s rc=%d ferror=%d errno=%d",
-                file->path.c_str(), rc, ferror(file->f), errno);
-        else
-            log("fs: save FlushFile path=%s -> ok", file->path.c_str());
-    } else {
-        log("fs: FlushFile handle=%llu has no writable host file",
-            (unsigned long long)c.x[0]);
-    }
-    c.x[0] = kOk;
-}"""
-if fs_text.count(old_flush) != 1:
-    raise SystemExit("hle_fs.cpp: FlushFile block not found uniquely")
-fs_text = fs_text.replace(old_flush, new_flush)
-
-old_create = """    FILE* f = plat::fopen_utf8(utf8(p), "wb");
-    if (f) {
-        if (size > 0) {
-            plat::fseek64(f, size - 1, SEEK_SET);
-            fputc(0, f);
-        }
-        fclose(f);
-    }
-    c.x[0] = f ? kOk : kPathNotFound;"""
-new_create = """    errno = 0;
-    FILE* f = plat::fopen_utf8(utf8(p), "wb");
-    const int open_errno = errno;
-    if (f) {
-        if (size > 0) {
-            plat::fseek64(f, size - 1, SEEK_SET);
-            fputc(0, f);
-        }
-        errno = 0;
-        const int close_rc = fclose(f);
-        if (close_rc != 0)
-            log("fs: SAVE I/O FAILURE CreateFile close path=%s size=%lld errno=%d",
-                p.string().c_str(), (long long)size, errno);
-        else
-            log("fs: save CreateFile path=%s size=%lld -> ok", p.string().c_str(), (long long)size);
-    } else {
-        log("fs: SAVE I/O FAILURE CreateFile open path=%s size=%lld errno=%d",
-            p.string().c_str(), (long long)size, open_errno);
-    }
-    c.x[0] = f ? kOk : kPathNotFound;"""
-if fs_text.count(old_create) != 1:
-    raise SystemExit("hle_fs.cpp: CreateFile block not found uniquely")
-fs_text = fs_text.replace(old_create, new_create)
-
-old_ensure = """    fs::create_directories(p, ec);
-    log("fs: EnsureSaveData -> %s", p.string().c_str());
-    c.x[0] = kOk;"""
-new_ensure = """    fs::create_directories(p, ec);
-    log("fs: EnsureSaveData -> %s ec=%d (%s) exists=%s",
-        p.string().c_str(), ec.value(), ec.message().c_str(),
-        fs::is_directory(p) ? "yes" : "no");
-    c.x[0] = kOk;"""
-if fs_text.count(old_ensure) != 1:
-    raise SystemExit("hle_fs.cpp: EnsureSaveData block not found uniquely")
-fs_text = fs_text.replace(old_ensure, new_ensure)
-
-fs_cpp.write_text(fs_text)
-print("Added save I/O diagnostics for EnsureSaveData, CreateFile, WriteFile and FlushFile; original return behavior is unchanged.")
+print("Installed host-backed CommitSaveData HLE; removed temporary save diagnostics.")

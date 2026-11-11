@@ -316,10 +316,12 @@ module_replacement = '''        } else if (name == "subsdk0") {
             }
             if (candidate) {
                 bool supplies_movie_import = false;
-                for (const Symbol& imported : nso[0]->info.symbols) {
+                for (size_t imported_index = 0; imported_index < nso[0]->info.symbol_count; ++imported_index) {
+                    const Symbol& imported = nso[0]->info.symbols[imported_index];
                     if (!imported.imported || std::strncmp(imported.name, "_ZN5movie", 9) != 0)
                         continue;
-                    for (const Symbol& exported : candidate->info.symbols) {
+                        for (size_t exported_index = 0; exported_index < candidate->info.symbol_count; ++exported_index) {
+                        const Symbol& exported = candidate->info.symbols[exported_index];
                         if (!exported.imported && std::strcmp(exported.name, imported.name) == 0) {
                             supplies_movie_import = true;
                             break;

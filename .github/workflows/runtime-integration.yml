@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 120
     env:
       UPSTREAM_REPO: https://github.com/Brandon04Gonzalez/p5r-android.git
-      UPSTREAM_COMMIT: 0c3b233d07afef37ab5af5dae41bf1a71ea98acf
+      UPSTREAM_COMMIT: baf036bbf6a842db6a41426a609bc22c8c826494
       VULKAN_SDK: ${{ github.workspace }}/vulkan-sdk
     steps:
       - name: Checkout P5S adapter

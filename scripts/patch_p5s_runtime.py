@@ -121,11 +121,56 @@ bool translate_shader_on_demand(const std::string& hash, const uint8_t* code, ui
         return false;
     }
     std::string result_table;
-    if (read_whole(output + "/results.tsv", result_table)) {
-        std::unordered_map<std::string, std::string> translated;
-        parse_results_tsv(result_table, translated);
-        auto it = translated.find(hash);
-        if (it != translated.end()) resources = it->second;
+    if (!read_whole(output + "/results.tsv", result_table)) {
+        log("nvn: translator produced no results.tsv for %s", hash.c_str());
+        return false;
+    }
+    std::unordered_map<std::string, std::string> translated;
+    parse_results_tsv(result_table, translated);
+    auto translated_it = translated.find(hash);
+    if (translated_it == translated.end()) {
+        log("nvn: translator produced no resource record for %s", hash.c_str());
+        return false;
+    }
+    // An empty resources string is still a valid record: it distinguishes a shader
+    // known to have no special NVN bindings from one whose metadata was never cached.
+    resources = translated_it->second;
+
+    // Persist resource metadata alongside the SPIR-V. Without this table, a shader
+    // cached on first launch can be loaded on later launches without the c[0] offsets
+    // needed to bind Maxwell storage buffers, causing compute pipelines to fail.
+    const std::string results_path = shader_dir + "/results.tsv";
+    std::string previous_table;
+    std::string merged_table =
+        "hash\tgroup\tstage\tstages_using\tstatus\tms\tspv_bytes\tresources\ttranslator_messages\terror\tdraw_time_queries\n";
+    auto append_rows = [&](const std::string& table, bool skip_header) {
+        size_t pos = 0;
+        if (skip_header) {
+            const size_t header_end = table.find('\n');
+            if (header_end == std::string::npos) return;
+            pos = header_end + 1;
+        }
+        while (pos < table.size()) {
+            const size_t end = table.find('\n', pos);
+            const size_t stop = end == std::string::npos ? table.size() : end;
+            const std::string line = table.substr(pos, stop - pos);
+            const size_t tab = line.find('\t');
+            if (!line.empty() && tab != std::string::npos && line.substr(0, tab) != hash) {
+                merged_table += line;
+                merged_table.push_back('\n');
+            }
+            if (end == std::string::npos) break;
+            pos = end + 1;
+        }
+    };
+    if (read_whole(results_path, previous_table)) append_rows(previous_table, true);
+    append_rows(result_table, true);
+    const std::string temporary_results = results_path + ".tmp";
+    if (!write_whole(temporary_results, merged_table.data(), merged_table.size()) ||
+        std::rename(temporary_results.c_str(), results_path.c_str()) != 0) {
+        log("nvn: could not persist shader resource metadata for %s", hash.c_str());
+        std::remove(temporary_results.c_str());
+        return false;
     }
     if (!write_whole(shader_dir + "/" + hash + ".spv", spirv.data(), spirv.size())) return false;
 
@@ -166,12 +211,17 @@ old_missing = '''    if (!read_whole(dir + hash + ".spv", bytes) || bytes.size()
         }
         return nullptr;
     }'''
-new_missing = '''    if (!read_whole(dir + hash + ".spv", bytes) || bytes.size() % 4 || bytes.empty()) {
+new_missing = '''    const bool cached_spirv = read_whole(dir + hash + ".spv", bytes) &&
+                              !bytes.empty() && bytes.size() % 4 == 0;
+    const bool cached_resources = k.resources.find(hash) != k.resources.end();
+    if (!cached_spirv || !cached_resources) {
+        const std::string previous_spirv = bytes;
         std::string translated_resources;
         if (translate_shader_on_demand(hash, code, c.code_size, ctrl, bytes, translated_resources)) {
-            if (!translated_resources.empty()) k.resources[hash] = translated_resources;
-            log("nvn: shader %s translated and cached on demand (%zu bytes)", hash.c_str(), bytes.size());
-        } else {
+            k.resources[hash] = translated_resources;
+            log("nvn: shader %s translated and cached with resource metadata (%zu bytes)",
+                hash.c_str(), bytes.size());
+        } else if (!cached_spirv) {
             log("nvn: shader %s (code %#x bytes, control %llx): no usable SPIR-V cache", hash.c_str(), c.code_size,
                 (unsigned long long)control);
             if (std::getenv("NX_DUMP_SHADER_MISSES")) {
@@ -181,6 +231,11 @@ new_missing = '''    if (!read_whole(dir + hash + ".spv", bytes) || bytes.size()
                 write_whole(out + "ctrl_" + hash + ".bin", ctrl, 0x880);
             }
             return nullptr;
+        } else {
+            // A previously cached shader can still be used if the translator is unavailable;
+            // resource-dependent bindings will be diagnosed by make_shader_info below.
+            bytes = previous_spirv;
+            log("nvn: shader %s has SPIR-V but no resource record; using existing cache", hash.c_str());
         }
     }'''
 if text.count(old_missing) != 1:

@@ -247,8 +247,7 @@ shaders.write_text(text)
 # entry point therefore needs an explicit default-visibility annotation or Android
 # cannot resolve ANativeActivity_onCreate from libp5s.so at launch.
 platform_text = platform.read_text()
-# JNIEXPORT expands to default visibility on Android. The upstream entry point
-# already carries it; assert that contract rather than rewriting a non-existent form.
+# JNIEXPORT expands to default visibility on Android. The upstream entry point# already carries it; assert that contract rather than rewriting a non-existent form.
 entry = 'extern "C" JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
 exported_entry = 'extern "C" JNIEXPORT __attribute__((visibility("default"))) void ANativeActivity_onCreate(ANativeActivity* activity, void* saved, size_t size) {'
 if platform_text.count(entry) != 1:
@@ -300,8 +299,45 @@ module_text = module_cpp.read_text()
 module_end = '''        }
     }
     if (nso.size() < 2) fatal("failed to load base modules (main and sdk required)");'''
-module_replacement = '''        } else if (name != "subsdk0") {
-            // Load optional base-game modules while keeping the Switch NVN driver out.
+module_replacement = '''        } else if (name == "subsdk0") {
+            // subsdk0 is often the Switch NVN driver, but some SDK builds put
+            // NintendoSDK_movie there. Load it only if it supplies a movie import
+            // that main actually needs; never load the GPU driver speculatively.
+            std::unique_ptr<nce::NsoModule> candidate;
+            if (image) {
+                auto it = image->exefs().find(name);
+                if (it != image->exefs().end())
+                    candidate = nce::load_nso_bytes(it->second, std::string("ExeFS/") + name, name, base, error);
+            } else {
+                std::error_code ec;
+                const auto path = fs::u8path(exefs) / fs::u8path(name);
+                if (fs::is_regular_file(path, ec))
+                    candidate = nce::load_nso(path.string(), name, base, error);
+            }
+            if (candidate) {
+                bool supplies_movie_import = false;
+                for (const Symbol& imported : nso[0]->info.symbols) {
+                    if (!imported.imported || std::strncmp(imported.name, "_ZN5movie", 9) != 0)
+                        continue;
+                    for (const Symbol& exported : candidate->info.symbols) {
+                        if (!exported.imported && std::strcmp(exported.name, imported.name) == 0) {
+                            supplies_movie_import = true;
+                            break;
+                        }
+                    }
+                    if (supplies_movie_import) break;
+                }
+                if (supplies_movie_import) {
+                    log("nce: loading ExeFS/subsdk0 because it supplies a movie import from main");
+                    nso.push_back(std::move(candidate));
+                } else {
+                    log("nce: skipping ExeFS/subsdk0: no imported movie symbol from main is exported");
+                }
+            } else if (!error.empty()) {
+                log("nce: could not inspect ExeFS/subsdk0: %s", error.c_str());
+            }
+        } else {
+            // Load optional base-game subsdk1..9 modules; these may contain game middleware.
             if (image) {
                 auto it = image->exefs().find(name);
                 if (it != image->exefs().end()) {
@@ -497,8 +533,7 @@ struct P5SHidServer : Service {
             return 0u;
         };
     }
-};
-ServiceRegistrar g_p5s_hid_registrar("hid", [] { return std::make_shared<P5SHidServer>(); });
+};ServiceRegistrar g_p5s_hid_registrar("hid", [] { return std::make_shared<P5SHidServer>(); });
 }  // namespace
 """
 if ipc_text.count(registrar_anchor) != 1:
@@ -743,4 +778,3 @@ if fs_text.count(fs_anchor) != 1:
 fs_text = fs_text.replace(fs_anchor, fs_replacement)
 fs_cpp.write_text(fs_text)
 print("Added save-write diagnostics and stopped masking host write/flush failures.")
-

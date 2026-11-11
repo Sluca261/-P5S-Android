@@ -68,6 +68,14 @@ jobs:
           grep -q 'namespace nx::game' runtime-src/games/p5s/game.cpp
           python3 scripts/patch_p5s_runtime.py runtime-src
 
+      - name: Run upstream Android MediaImage2 plane-layout unit tests
+        run: |
+          c++ -std=c++20 -Wall -Wextra -Werror \
+            -Iruntime-src/runtime/src \
+            runtime-src/tests/media_image_test.cpp \
+            -o /tmp/p5s-media-image-test
+          /tmp/p5s-media-image-test
+
       - name: Prepare Vulkan headers and Android dependencies
         run: |
           mkdir -p private/third_party

@@ -535,7 +535,7 @@ if hid_text.count(hid_register_16) != 1:
     raise SystemExit("hle_hid.cpp: expected templated GetTouchScreenState<16> HLE export is missing or duplicated")
 if hid_text.count(hid_register_1) != 0:
     raise SystemExit("hle_hid.cpp: templated GetTouchScreenState<1> HLE export already exists unexpectedly")
-hid_text = hid_text.replace(hid_register_16, hid_register_16 + "\\n" + hid_register_1)
+hid_text = hid_text.replace(hid_register_16, hid_register_16 + "\n" + hid_register_1)
 hid_cpp.write_text(hid_text)
 
 print("Registered both templated GetTouchScreenState<16> and the P5S-observed <1> specialization.")

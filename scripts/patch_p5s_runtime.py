@@ -780,3 +780,158 @@ if fs_text.count(fs_anchor) != 1:
 fs_text = fs_text.replace(fs_anchor, fs_replacement)
 fs_cpp.write_text(fs_text)
 print("Added save-write diagnostics and stopped masking host write/flush failures.")
+
+
+# P5S runtime investigation: capture the first synchronization wait that stops progress.
+# Keep the trace bounded on normal launches; long waits are always reported.
+kernel = root / "runtime/src/kernel.cpp"
+kernel_text = kernel.read_text()
+wait_anchor = "static uint32_t svc_wait_synchronization(CPU& c, uint64_t handles, int32_t count, int64_t timeout) {"
+wait_replacement = wait_anchor + """
+    static std::atomic<uint32_t> p5s_wait_trace{0};
+    const uint32_t trace_id = ++p5s_wait_trace;
+    const uint64_t wait_started = plat::monotonic_ns();
+    const bool trace_this_wait = trace_id <= 256;
+"""
+if kernel_text.count(wait_anchor) != 1:
+    raise SystemExit("kernel.cpp: synchronization wait entry not found uniquely")
+kernel_text = kernel_text.replace(wait_anchor, wait_replacement)
+
+objects_anchor = """        objs.push_back(o);
+    }
+    auto ready = [&]() -> int {"""
+objects_replacement = """        objs.push_back(o);
+    }
+    if (trace_this_wait) {
+        for (int i = 0; i < count; ++i) {
+            const uint32_t handle = ld<uint32_t>(handles + 4 * i);
+            log("sync: wait #%u enter thread=%llx handle=%x signaled=%d timeout_ns=%lld",
+                trace_id, (unsigned long long)(t_self ? t_self->id : 0), handle,
+                objs[i]->signaled() ? 1 : 0, (long long)timeout);
+        }
+    }
+    auto report_wait = [&](const char* outcome, int index) {
+        const uint64_t elapsed = plat::monotonic_ns() - wait_started;
+        if (trace_this_wait || elapsed >= 100'000'000ull) {
+            log("sync: wait #%u %s thread=%llx elapsed_ms=%.2f index=%d count=%d timeout_ns=%lld",
+                trace_id, outcome, (unsigned long long)(t_self ? t_self->id : 0),
+                double(elapsed) / 1e6, index, count, (long long)timeout);
+        }
+    };
+    auto ready = [&]() -> int {"""
+if kernel_text.count(objects_anchor) != 1:
+    raise SystemExit("kernel.cpp: synchronization object collection anchor not found uniquely")
+kernel_text = kernel_text.replace(objects_anchor, objects_replacement)
+
+cancel_anchor = """        if (self->cancel) {
+            self->cancel = false;
+            return 0xEC01;
+        }
+        int i = ready();
+        if (i >= 0) {
+            c.x[1] = uint32_t(i);
+            objs[i]->consume();
+            return 0;
+        }
+        if (timeout == 0) return 0xEA01;
+        if (timeout < 0)
+            self->cv.wait(lk);
+        else if (self->cv.wait_until(lk, until) == std::cv_status::timeout && ready() < 0)
+            return 0xEA01;"""
+cancel_replacement = """        if (self->cancel) {
+            self->cancel = false;
+            report_wait("cancelled", -1);
+            return 0xEC01;
+        }
+        int i = ready();
+        if (i >= 0) {
+            c.x[1] = uint32_t(i);
+            objs[i]->consume();
+            report_wait("signalled", i);
+            return 0;
+        }
+        if (timeout == 0) {
+            report_wait("poll-timeout", -1);
+            return 0xEA01;
+        }
+        if (timeout < 0)
+            self->cv.wait(lk);
+        else if (self->cv.wait_until(lk, until) == std::cv_status::timeout && ready() < 0) {
+            report_wait("timeout", -1);
+            return 0xEA01;
+        }"""
+if kernel_text.count(cancel_anchor) != 1:
+    raise SystemExit("kernel.cpp: synchronization wait result block not found uniquely")
+kernel_text = kernel_text.replace(cancel_anchor, cancel_replacement)
+
+signal_anchor = """        case 0x11: {  // SignalEvent(handle)
+            auto e = std::dynamic_pointer_cast<KEvent>(handle_get(uint32_t(c.x[0])));"""
+signal_replacement = """        case 0x11: {  // SignalEvent(handle)
+            static std::atomic<uint32_t> p5s_event_signals{0};
+            const uint32_t signal_id = ++p5s_event_signals;
+            auto e = std::dynamic_pointer_cast<KEvent>(handle_get(uint32_t(c.x[0])));"""
+if kernel_text.count(signal_anchor) != 1:
+    raise SystemExit("kernel.cpp: SignalEvent handler not found uniquely")
+kernel_text = kernel_text.replace(signal_anchor, signal_replacement)
+signal_state_anchor = """            std::lock_guard lk(g_k);
+            e->state->signaled = true;
+            notify_all();
+            break;
+        }
+        case 0x12:"""
+signal_state_replacement = """            std::lock_guard lk(g_k);
+            e->state->signaled = true;
+            if (signal_id <= 256)
+                log("sync: SignalEvent #%u thread=%llx handle=%x", signal_id,
+                    (unsigned long long)(t_self ? t_self->id : 0), uint32_t(c.x[0]));
+            notify_all();
+            break;
+        }
+        case 0x12:"""
+if kernel_text.count(signal_state_anchor) != 1:
+    raise SystemExit("kernel.cpp: SignalEvent state update not found uniquely")
+kernel_text = kernel_text.replace(signal_state_anchor, signal_state_replacement)
+
+cancel_svc_anchor = """        case 0x19: {  // CancelSynchronization(thread handle)
+            auto t = std::dynamic_pointer_cast<KThread>(handle_get(uint32_t(c.x[0])));
+            std::lock_guard lk(g_k);
+            if (t) t->cancel = true;
+            notify_all();
+            break;
+        }"""
+cancel_svc_replacement = """        case 0x19: {  // CancelSynchronization(thread handle)
+            static std::atomic<uint32_t> p5s_cancellations{0};
+            const uint32_t cancel_id = ++p5s_cancellations;
+            const uint32_t target_handle = uint32_t(c.x[0]);
+            auto t = std::dynamic_pointer_cast<KThread>(handle_get(target_handle));
+            std::lock_guard lk(g_k);
+            if (t) t->cancel = true;
+            if (cancel_id <= 256)
+                log("sync: CancelSynchronization #%u caller=%llx target=%x target_thread=%llx valid=%d",
+                    cancel_id, (unsigned long long)(t_self ? t_self->id : 0), target_handle,
+                    (unsigned long long)(t ? t->id : 0), t ? 1 : 0);
+            notify_all();
+            break;
+        }"""
+if kernel_text.count(cancel_svc_anchor) != 1:
+    raise SystemExit("kernel.cpp: CancelSynchronization handler not found uniquely")
+kernel_text = kernel_text.replace(cancel_svc_anchor, cancel_svc_replacement)
+kernel.write_text(kernel_text)
+
+# Trigger a one-shot thread dump around the known 30-40 second stall window and
+# request movie starvation diagnostics. These are runtime defaults, not device-specific tuning.
+watch = root / "runtime/src/kernel_watch.cpp"
+watch_text = watch.read_text()
+watch_anchor = """void kernel_init() {
+    plat::start_thread(watchdog, nullptr, 1ull << 20);"""
+watch_replacement = """void kernel_init() {
+#if defined(__ANDROID__)
+    setenv("NX_THREAD_DUMP_AT", "28", 0);
+    setenv("NX_MOVIE_DUMP", "2", 0);
+#endif
+    plat::start_thread(watchdog, nullptr, 1ull << 20);"""
+if watch_text.count(watch_anchor) != 1:
+    raise SystemExit("kernel_watch.cpp: kernel_init instrumentation point not found uniquely")
+watch.write_text(watch_text.replace(watch_anchor, watch_replacement))
+
+print("Added bounded Horizon synchronization/event tracing and one-shot video/thread stall diagnostics for P5S.")
